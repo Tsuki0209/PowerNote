@@ -403,22 +403,16 @@
 									class="flex h-full min-w-0 flex-1 items-center gap-2 pr-2 pl-4 text-[12px] font-bold transition-colors"
 								>
 									<svg
-										class="h-3.5 w-3.5 shrink-0 {tab.is_pinned
-											? 'text-(--accent-color)'
-											: 'opacity-40'}"
+										class="h-3.5 w-3.5 shrink-0 opacity-40"
 										viewBox="0 0 24 24"
-										fill={tab.is_pinned ? 'currentColor' : 'none'}
+										fill="none"
 										stroke="currentColor"
 										stroke-width="2"
 									>
-										{#if tab.is_pinned}
-											<path d="M12 2L12 22M12 2L19 9M12 2L5 9" />
-										{:else}
-											<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" /><path
-												d="M13 2v7h7"
-											/>
-										{/if}
+										<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+										<path d="M13 2v7h7" />
 									</svg>
+
 									<span
 										class="pointer-events-none truncate {activeTabId === tab.id
 											? 'text-(--accent-color)'
@@ -427,7 +421,25 @@
 										{tab.name}.{tab.extension}
 									</span>
 								</button>
-								{#if !tab.is_pinned}
+
+								{#if tab.is_pinned}
+									<div
+										class="absolute right-3 flex items-center justify-center text-(--accent-color)"
+									>
+										<svg
+											class="h-3.5 w-3.5"
+											viewBox="0 0 24 24"
+											fill="currentColor"
+											stroke="currentColor"
+											stroke-width="1"
+										>
+											<path
+												d="M9 4v1.2a5 5 0 0 0 1.5 3.5l.5.5v4.4l-2 3v1h8v-1l-2-3V9.2l.5-.5a5 5 0 0 0 1.5-3.5V4H9Z"
+											/>
+											<path d="M12 17v7" />
+										</svg>
+									</div>
+								{:else}
 									<button
 										onclick={(e) => closeTab(tab.id, e)}
 										aria-label="Close {tab.name} tab"
