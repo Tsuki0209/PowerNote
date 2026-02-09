@@ -14,6 +14,9 @@
 	// デバイス上のファイルハンドルを保持するマップ (ID -> Handle)
 	let fileHandles = $state<Map<string, any>>(new Map());
 
+	// インポート待機用
+	let pendingImport = $state<{ name: string; content: string; extension: string } | null>(null);
+
 	// タブ管理
 	let tabs = $derived(
 		files
@@ -105,12 +108,11 @@
 		setTimeout(checkScroll, 50);
 	}
 
-	// --- デバイス保存ロジック (FileSystemAccessAPI) ---
+	// --- デバイス保存ロジック ---
 	async function saveToDevice(asNewFile = false) {
 		if (!targetItem || targetItem.is_folder) return;
 		try {
 			let handle = fileHandles.get(targetItem.id);
-
 			if (asNewFile || !handle) {
 				handle = await (window as any).showSaveFilePicker({
 					suggestedName: `${targetItem.name}.${targetItem.extension || 'txt'}`,
@@ -118,7 +120,6 @@
 				});
 				fileHandles.set(targetItem.id, handle);
 			}
-
 			const writable = await handle.createWritable();
 			await writable.write(targetItem.content);
 			await writable.close();
@@ -129,7 +130,6 @@
 		}
 	}
 
-	// ドラッグ&ドロップ
 	function handleDragStart(id: string) {
 		draggingTabId = id;
 	}
@@ -224,6 +224,7 @@
 		newName = '';
 		targetFolderId = null;
 		targetItem = null;
+		pendingImport = null;
 	}
 
 	async function handleCreate() {
@@ -247,32 +248,44 @@
 		}
 	}
 
-	async function handleImport(event: Event) {
-		const input = event.target as HTMLInputElement;
-		if (!input.files?.[0]) return;
-		const file = input.files[0];
+	// --- インポート処理 ---
+	function processFile(file: File) {
 		const reader = new FileReader();
-		reader.onload = async (e) => {
-			const content = e.target?.result as string;
-			const name = file.name.split('.').slice(0, -1).join('.') || file.name;
-			const ext = file.name.split('.').pop() || 'txt';
-			await supabase
-				.from('files')
-				.insert([
-					{
-						name,
-						extension: ext,
-						content,
-						is_folder: false,
-						parent_id: targetFolderId,
-						sort_order: files.length,
-						is_open: true
-					}
-				]);
-			closeModals();
-			fetchFiles();
+		reader.onload = (e) => {
+			pendingImport = {
+				name: file.name.split('.').slice(0, -1).join('.') || file.name,
+				extension: file.name.split('.').pop() || 'txt',
+				content: e.target?.result as string
+			};
 		};
 		reader.readAsText(file);
+	}
+
+	async function confirmImport() {
+		if (!pendingImport) return;
+		const { error } = await supabase.from('files').insert([
+			{
+				name: pendingImport.name,
+				extension: pendingImport.extension,
+				content: pendingImport.content,
+				is_folder: false,
+				parent_id: targetFolderId,
+				sort_order: files.length,
+				is_open: true
+			}
+		]);
+		if (error) toast.error('Import failed');
+		else {
+			toast.success('Imported');
+			closeModals();
+			fetchFiles();
+		}
+	}
+
+	function handleFileDrop(e: DragEvent) {
+		e.preventDefault();
+		const file = e.dataTransfer?.files?.[0];
+		if (file) processFile(file);
 	}
 
 	onMount(() => {
@@ -495,7 +508,7 @@
 				</div>
 				<textarea
 					bind:value={selectedFile.content}
-					class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-12 font-mono text-[16px] leading-relaxed ring-0 outline-none focus:ring-0"
+					class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-12 font-mono text-[16px] leading-relaxed font-medium ring-0 outline-none focus:ring-0"
 					spellcheck="false"
 					placeholder="Start writing..."
 				></textarea>
@@ -552,6 +565,73 @@
 				<div class="mt-10 flex gap-3">
 					<button type="button" onclick={closeModals} class="btn-ghost flex-1">Cancel</button>
 					<button type="button" onclick={handleCreate} class="btn-primary flex-1">Create</button>
+				</div>
+			{:else if showModal === 'import'}
+				<h3 class="modal-title mb-8">Import File</h3>
+				<div class="space-y-6">
+					{#if !pendingImport}
+						<div
+							role="button"
+							tabindex="0"
+							ondragover={(e) => e.preventDefault()}
+							ondrop={handleFileDrop}
+							onclick={() => document.getElementById('file-upload')?.click()}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									document.getElementById('file-upload')?.click();
+								}
+							}}
+							class="flex aspect-video w-full cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-(--border-color)/40 bg-(--bg-input)/30 transition-colors hover:bg-(--bg-input)/50 focus:ring-2 focus:ring-(--accent-color)/50 focus:outline-none"
+						>
+							<input
+								id="file-upload"
+								type="file"
+								class="hidden"
+								onchange={(e) => {
+									const file = (e.target as HTMLInputElement).files?.[0];
+									if (file) processFile(file);
+								}}
+							/>
+							<svg
+								class="mb-3 h-8 w-8 opacity-20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline
+									points="17 8 12 3 7 8"
+								/><line x1="12" y1="3" x2="12" y2="15" />
+							</svg>
+							<span class="text-xs font-bold opacity-40">Drop file or Click to browse</span>
+						</div>
+					{:else}
+						<div class="rounded-2xl bg-(--bg-input) p-6">
+							<p class="text-[10px] font-bold tracking-widest uppercase opacity-40">
+								Selected File
+							</p>
+							<p class="mt-2 font-mono text-sm">{pendingImport.name}.{pendingImport.extension}</p>
+						</div>
+					{/if}
+
+					<Select
+						label="Import to Folder"
+						value={targetFolderId}
+						options={folderOptions}
+						onSelect={(id) => (targetFolderId = id)}
+					/>
+				</div>
+				<div class="mt-10 flex gap-3">
+					<button type="button" onclick={closeModals} class="btn-ghost flex-1">Cancel</button>
+					<button
+						type="button"
+						disabled={!pendingImport}
+						onclick={confirmImport}
+						class="btn-primary flex-1 disabled:opacity-20"
+					>
+						Import Now
+					</button>
 				</div>
 			{:else if showModal === 'actions'}
 				<h3 class="modal-title mb-6">{targetItem?.is_folder ? 'Folder' : 'File'} Actions</h3>
