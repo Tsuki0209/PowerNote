@@ -281,6 +281,21 @@
 		if (file) processFile(file);
 	}
 
+	// --- 情報計算 ---
+	function getFileInfo(item: any) {
+		if (!item || item.is_folder) return null;
+		const content = item.content || '';
+		const size = new Blob([content]).size;
+		const lines = content === '' ? 0 : content.split('\n').length;
+		const chars = content.length;
+		const date = new Date(item.updated_at).toLocaleString();
+
+		let sizeStr = size + ' B';
+		if (size > 1024) sizeStr = (size / 1024).toFixed(1) + ' KB';
+
+		return { sizeStr, lines, chars, date };
+	}
+
 	onMount(() => {
 		fetchFiles();
 		document.documentElement.classList.toggle('dark', isDarkMode);
@@ -627,7 +642,26 @@
 					</button>
 				</div>
 			{:else if showModal === 'actions'}
-				<h3 class="modal-title mb-6">{targetItem?.is_folder ? 'Folder' : 'File'} Actions</h3>
+				<div class="mb-8">
+					<h3 class="modal-title mb-2 truncate">
+						{targetItem?.name}{targetItem?.is_folder ? '' : `.${targetItem?.extension}`}
+					</h3>
+					{#if !targetItem?.is_folder}
+						{@const info = getFileInfo(targetItem)}
+						{#if info}
+							<div class="grid grid-cols-2 gap-y-2 rounded-2xl bg-black/5 p-4 dark:bg-white/5">
+								<div class="text-[10px] font-bold uppercase opacity-40">Size</div>
+								<div class="font-mono text-[11px]">{info.sizeStr}</div>
+								<div class="text-[10px] font-bold uppercase opacity-40">Updated</div>
+								<div class="font-mono text-[11px]">{info.date}</div>
+								<div class="text-[10px] font-bold uppercase opacity-40">Characters</div>
+								<div class="font-mono text-[11px]">{info.chars}</div>
+								<div class="text-[10px] font-bold uppercase opacity-40">Lines</div>
+								<div class="font-mono text-[11px]">{info.lines}</div>
+							</div>
+						{/if}
+					{/if}
+				</div>
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
 						<button
