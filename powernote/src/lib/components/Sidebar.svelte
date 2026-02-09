@@ -12,6 +12,7 @@
 			activeView: 'editor' | 'settings';
 		}>();
 
+	// parent_idがnullのものをルートとして表示
 	let rootItems = $derived(files.filter((f: any) => !f.parent_id));
 </script>
 

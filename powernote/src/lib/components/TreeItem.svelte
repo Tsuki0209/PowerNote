@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { supabase } from '$lib/supabaseClient'; // 追加
 	import TreeItem from './TreeItem.svelte';
 
 	let { item, allFiles, onSelect, selectedId, onOpenActions } = $props<{
@@ -6,16 +7,29 @@
 		allFiles: any[];
 		onSelect: (file: any) => void;
 		selectedId: string | null;
-		onOpenActions: (item: any) => void; // 詳細モーダルを開く関数
+		onOpenActions: (item: any) => void;
 	}>();
 
-	let isOpen = $state(false);
-	// parent_id に基づいて子要素をフィルタリング
+	// DBの値を直接参照（同期のため）
 	let children = $derived(allFiles.filter((f: any) => f.parent_id === item.id));
 
-	function handleToggle() {
+	async function handleToggle() {
 		if (item.is_folder) {
-			isOpen = !isOpen;
+			const nextState = !item.is_expanded;
+			// 1. UIを即時更新（楽観的更新）
+			item.is_expanded = nextState;
+
+			// 2. Supabaseに同期
+			const { error } = await supabase
+				.from('files')
+				.update({ is_expanded: nextState })
+				.eq('id', item.id);
+
+			if (error) {
+				// 失敗時は戻す
+				item.is_expanded = !nextState;
+				console.error('Failed to sync expand state:', error);
+			}
 		} else {
 			onSelect(item);
 		}
@@ -33,7 +47,7 @@
 		<span class="mr-3 flex h-4 w-4 items-center justify-center opacity-40">
 			{#if item.is_folder}
 				<svg
-					class="h-3.5 w-3.5 transition-transform {isOpen ? 'rotate-90' : ''}"
+					class="h-3.5 w-3.5 transition-transform {item.is_expanded ? 'rotate-90' : ''}"
 					viewBox="0 0 24 24"
 					fill="none"
 					stroke="currentColor"
@@ -75,7 +89,7 @@
 		</svg>
 	</button>
 
-	{#if item.is_folder && isOpen}
+	{#if item.is_folder && item.is_expanded}
 		<div class="mt-1 ml-6 border-l-2 border-(--border-color)/30">
 			{#each children as child (child.id)}
 				<TreeItem item={child} {allFiles} {onSelect} {selectedId} {onOpenActions} />
