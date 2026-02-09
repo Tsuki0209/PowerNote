@@ -11,11 +11,14 @@
 		null
 	);
 	let fileHandles = $state<Map<string, any>>(new Map());
-
-	// インポート待機用
 	let pendingImport = $state<{ name: string; content: string; extension: string } | null>(null);
 
-	// タブ管理
+	// --- 画面分割・状態記憶管理 ---
+	type LayoutMode = '1' | 'V2' | 'H2' | 'V3' | 'Grid4' | 'Grid6';
+	let layoutMode = $state<LayoutMode>('1');
+	let activeViewIndex = $state(0);
+	let viewStates = $state<string[]>(['']); // 各ペインに紐づくファイルIDの配列
+
 	let tabs = $derived(
 		files
 			.filter((f) => f.is_open)
@@ -24,20 +27,35 @@
 				return a.sort_order - b.sort_order;
 			})
 	);
-	let activeTabId = $state<string | null>(null);
+
+	// 現在操作中のペインに表示されているファイルID
+	let activeTabId = $derived(viewStates[activeViewIndex] || null);
 	let selectedFile = $derived(files.find((f) => f.id === activeTabId) || null);
 
-	// --- オートセーブ (Supabase) ---
+	// レイアウトと各ペインのファイル選択状況をlocalStorageに保存
+	$effect(() => {
+		if (files.length > 0) {
+			const state = {
+				layoutMode,
+				viewStates,
+				activeViewIndex
+			};
+			localStorage.setItem('powernote_split_config', JSON.stringify(state));
+		}
+	});
+
+	// --- オートセーブ ---
 	let autoSaveTimeout: ReturnType<typeof setTimeout>;
 	$effect(() => {
-		if (selectedFile) {
-			const content = selectedFile.content;
-			const id = selectedFile.id;
+		const openFiles = files.filter((f) => f.is_open);
+		openFiles.forEach((f) => {
+			const content = f.content;
+			const id = f.id;
 			clearTimeout(autoSaveTimeout);
 			autoSaveTimeout = setTimeout(async () => {
 				await supabase.from('files').update({ content }).eq('id', id);
 			}, 500);
-		}
+		});
 	});
 
 	let draggingTabId = $state<string | null>(null);
@@ -64,12 +82,23 @@
 			.select('*')
 			.order('sort_order', { ascending: true });
 		files = data || [];
+
+		// ファイル取得後にlocalStorageから分割状態を復元
+		const saved = localStorage.getItem('powernote_split_config');
+		if (saved) {
+			const config = JSON.parse(saved);
+			layoutMode = config.layoutMode;
+			viewStates = config.viewStates;
+			activeViewIndex = config.activeViewIndex;
+		}
 	}
 
 	async function handleSelect(file: any) {
 		if (file.is_folder) return;
 		activeView = 'editor';
-		activeTabId = file.id;
+		// 現在アクティブなペインにこのファイルを割り当て
+		viewStates[activeViewIndex] = file.id;
+
 		if (!file.is_open) {
 			const { error } = await supabase.from('files').update({ is_open: true }).eq('id', file.id);
 			if (!error) {
@@ -91,21 +120,14 @@
 		event?.stopPropagation();
 		const { error } = await supabase.from('files').update({ is_open: false }).eq('id', id);
 		if (!error) {
-			const closedTabIndex = tabs.findIndex((t) => t.id === id);
 			const f = files.find((item) => item.id === id);
 			if (f) f.is_open = false;
-			if (activeTabId === id) {
-				if (tabs.length > 0) {
-					activeTabId = tabs[Math.max(0, closedTabIndex - 1)].id;
-				} else {
-					activeTabId = null;
-				}
-			}
+			// ペインからも消去
+			viewStates = viewStates.map((v) => (v === id ? '' : v));
 		}
 		setTimeout(checkScroll, 50);
 	}
 
-	// --- デバイス保存ロジック (上書き機能を削除) ---
 	async function saveToDevice() {
 		if (!targetItem || targetItem.is_folder) return;
 		try {
@@ -169,7 +191,7 @@
 		const { error } = await supabase.from('files').delete().eq('id', idToDelete);
 		if (error) toast.error('Delete failed');
 		else {
-			if (activeTabId === idToDelete) activeTabId = null;
+			viewStates = viewStates.map((v) => (v === idToDelete ? '' : v));
 			fileHandles.delete(idToDelete);
 			await fetchFiles();
 			closeModals();
@@ -241,7 +263,6 @@
 		}
 	}
 
-	// --- インポート処理 ---
 	function processFile(file: File) {
 		const reader = new FileReader();
 		reader.onload = (e) => {
@@ -281,7 +302,6 @@
 		if (file) processFile(file);
 	}
 
-	// --- 情報計算 ---
 	function getFileInfo(item: any) {
 		if (!item || item.is_folder) return null;
 		const content = item.content || '';
@@ -289,10 +309,8 @@
 		const lines = content === '' ? 0 : content.split('\n').length;
 		const chars = content.length;
 		const date = new Date(item.updated_at).toLocaleString();
-
 		let sizeStr = size + ' B';
 		if (size > 1024) sizeStr = (size / 1024).toFixed(1) + ' KB';
-
 		return { sizeStr, lines, chars, date };
 	}
 
@@ -302,6 +320,17 @@
 		window.addEventListener('resize', checkScroll);
 		return () => window.removeEventListener('resize', checkScroll);
 	});
+
+	const gridClasses: Record<LayoutMode, string> = {
+		'1': 'grid-cols-1',
+		V2: 'grid-cols-2',
+		H2: 'grid-rows-2',
+		V3: 'grid-cols-3',
+		Grid4: 'grid-cols-2 grid-rows-2',
+		Grid6: 'grid-cols-3 grid-rows-2'
+	};
+
+	const getViewCount = (m: LayoutMode) => ({ '1': 1, V2: 2, H2: 2, V3: 3, Grid4: 4, Grid6: 6 })[m];
 </script>
 
 <Toaster />
@@ -322,15 +351,15 @@
 	{/if}
 
 	<main
-		class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
+		class="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
 	>
 		<header
 			class="flex h-16 shrink-0 items-center gap-2 border-b border-(--border-color)/30 bg-(--bg-sidebar) px-4"
 		>
 			<button
 				onclick={() => (isSidebarOpen = !isSidebarOpen)}
-				class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
 				aria-label="Toggle Sidebar"
+				class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
 			>
 				<svg
 					class="h-5 w-5 opacity-40"
@@ -349,7 +378,7 @@
 						>
 							<button
 								onclick={() => scrollTabs('left')}
-								aria-label="Scroll left"
+								aria-label="Scroll Tabs Left"
 								class="ml-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm hover:scale-110"
 							>
 								<svg
@@ -368,7 +397,6 @@
 						onscroll={checkScroll}
 						onwheel={handleWheel}
 						role="list"
-						aria-label="Open tabs"
 						class="scrollbar-none flex h-full items-center gap-2 overflow-x-auto scroll-smooth px-4"
 					>
 						{#each tabs as tab (tab.id)}
@@ -388,7 +416,7 @@
 							>
 								<button
 									onclick={() => handleSelect(tab)}
-									class="flex h-full min-w-0 flex-1 items-center gap-2 pr-2 pl-4 text-[12px] font-bold transition-colors"
+									class="flex h-full min-w-0 flex-1 items-center gap-2 pr-2 pl-4 text-[12px] font-bold"
 								>
 									<svg
 										class="h-3.5 w-3.5 shrink-0 opacity-40"
@@ -401,21 +429,14 @@
 										/></svg
 									>
 									<span
-										class="pointer-events-none truncate {activeTabId === tab.id
+										class="truncate {activeTabId === tab.id
 											? 'text-(--accent-color)'
 											: 'text-(--text-muted)'}">{tab.name}.{tab.extension}</span
 									>
 								</button>
 								{#if tab.is_pinned}
-									<div
-										class="absolute right-3 flex items-center justify-center text-(--accent-color)"
-									>
-										<svg
-											class="h-3.5 w-3.5"
-											viewBox="0 0 24 24"
-											fill="currentColor"
-											stroke="currentColor"
-											stroke-width="1"
+									<div class="absolute right-3 text-(--accent-color)">
+										<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"
 											><path
 												d="M9 4v1.2a5 5 0 0 0 1.5 3.5l.5.5v4.4l-2 3v1h8v-1l-2-3V9.2l.5-.5a5 5 0 0 0 1.5-3.5V4H9Z"
 											/><path d="M12 17v7" /></svg
@@ -425,7 +446,7 @@
 									<button
 										onclick={(e) => closeTab(tab.id, e)}
 										aria-label="Close tab"
-										class="absolute right-2 rounded-full bg-inherit p-1 text-(--text-muted) opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
+										class="absolute right-2 rounded-full p-1 opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
 									>
 										<svg
 											class="h-3 w-3"
@@ -447,7 +468,7 @@
 						>
 							<button
 								onclick={() => scrollTabs('right')}
-								aria-label="Scroll right"
+								aria-label="Scroll Tabs Right"
 								class="mr-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm hover:scale-110"
 							>
 								<svg
@@ -463,7 +484,7 @@
 				{:else}
 					<div class="flex h-full items-center px-2">
 						<div
-							class="flex h-9 w-fit items-center rounded-full bg-(--accent-color)/10 px-4 ring-1 ring-(--accent-color)/20"
+							class="flex h-9 items-center rounded-full bg-(--accent-color)/10 px-4 ring-1 ring-(--accent-color)/20"
 						>
 							<span class="text-[12px] font-bold text-(--accent-color)">Settings</span>
 						</div>
@@ -493,41 +514,86 @@
 						</section>
 					</div>
 				</div>
-			{:else if selectedFile}
-				<div class="absolute top-8 right-8 z-20">
-					<button
-						onclick={() => openItemActions(selectedFile)}
-						aria-label="File actions"
-						class="flex h-10 w-10 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md transition-all hover:scale-110 hover:border-(--accent-color)/50 active:scale-95"
-					>
-						<svg
-							class="h-5 w-5 opacity-60"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2.5"
-							><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
-								cx="12"
-								cy="19"
-								r="1"
-							/></svg
-						>
-					</button>
-				</div>
-				<textarea
-					bind:value={selectedFile.content}
-					class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-12 font-mono text-[16px] leading-relaxed font-medium ring-0 outline-none focus:ring-0"
-					spellcheck="false"
-					placeholder="Start writing..."
-				></textarea>
 			{:else}
-				<div class="flex h-full flex-col items-center justify-center">
-					<span class="text-[11px] font-black tracking-[0.5em] uppercase opacity-20"
-						>Select a file to begin</span
-					>
+				<div class="grid h-full w-full divide-(--border-color)/30 {gridClasses[layoutMode]}">
+					{#each Array(getViewCount(layoutMode)) as _, i}
+						{@const viewId = viewStates[i]}
+						{@const viewFile = files.find((f) => f.id === viewId)}
+						<div
+							role="presentation"
+							onclick={() => (activeViewIndex = i)}
+							class="group/pane relative flex flex-col border border-(--border-color)/10 transition-colors {activeViewIndex ===
+							i
+								? 'bg-(--accent-color)/2 ring-2 ring-(--accent-color)/20 ring-inset'
+								: ''}"
+						>
+							{#if viewFile}
+								<div
+									class="absolute top-6 right-6 z-20 opacity-0 transition-opacity group-hover/pane:opacity-100"
+								>
+									<button
+										onclick={() => openItemActions(viewFile)}
+										aria-label="File Actions"
+										class="flex h-8 w-8 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md hover:scale-110"
+									>
+										<svg
+											class="h-4 w-4 opacity-60"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.5"
+											><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
+												cx="12"
+												cy="19"
+												r="1"
+											/></svg
+										>
+									</button>
+								</div>
+								<textarea
+									bind:value={viewFile.content}
+									class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
+									spellcheck="false"
+									placeholder="Start writing..."
+								></textarea>
+							{:else}
+								<div
+									class="m-4 flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-(--border-color)/10"
+								>
+									<span class="text-[9px] font-black tracking-widest uppercase opacity-20"
+										>View {i + 1}: Select file</span
+									>
+								</div>
+							{/if}
+						</div>
+					{/each}
 				</div>
 			{/if}
 		</div>
+
+		{#if activeView === 'editor'}
+			<div
+				class="absolute right-6 bottom-6 z-40 flex items-center gap-1 rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl"
+			>
+				{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
+					<button
+						onclick={() => {
+							layoutMode = mode as LayoutMode;
+							const count = getViewCount(layoutMode);
+							// ビュー配列の長さを調整
+							while (viewStates.length < count) viewStates.push('');
+							if (activeViewIndex >= count) activeViewIndex = 0;
+						}}
+						aria-label="Switch to {mode} layout"
+						class="rounded-xl px-3 py-1.5 text-[10px] font-black transition-all {layoutMode === mode
+							? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
+							: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
+					>
+						{mode}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	</main>
 </div>
 
@@ -535,9 +601,9 @@
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
 		<button
 			type="button"
+			aria-label="Close modal"
 			class="absolute inset-0 cursor-default bg-slate-900/40 backdrop-blur-sm"
 			onclick={closeModals}
-			aria-label="Close modal"
 		></button>
 		<div
 			class="relative w-full max-w-md rounded-4xl border border-(--border-color) bg-(--bg-modal) p-10 shadow-2xl"
@@ -584,13 +650,10 @@
 							ondragover={(e) => e.preventDefault()}
 							ondrop={handleFileDrop}
 							onclick={() => document.getElementById('file-upload')?.click()}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									e.preventDefault();
-									document.getElementById('file-upload')?.click();
-								}
-							}}
-							class="flex aspect-video w-full cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-(--border-color)/40 bg-(--bg-input)/30 transition-colors hover:bg-(--bg-input)/50 focus:ring-2 focus:ring-(--accent-color)/50 focus:outline-none"
+							onkeydown={(e) =>
+								(e.key === 'Enter' || e.key === ' ') &&
+								document.getElementById('file-upload')?.click()}
+							class="flex aspect-video w-full cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed border-(--border-color)/40 bg-(--bg-input)/30 transition-colors hover:bg-(--bg-input)/50"
 						>
 							<input
 								id="file-upload"
@@ -607,11 +670,10 @@
 								fill="none"
 								stroke="currentColor"
 								stroke-width="2"
-							>
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline
+								><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline
 									points="17 8 12 3 7 8"
-								/><line x1="12" y1="3" x2="12" y2="15" />
-							</svg>
+								/><line x1="12" y1="3" x2="12" y2="15" /></svg
+							>
 							<span class="text-xs font-bold opacity-40">Drop file or Click to browse</span>
 						</div>
 					{:else}
@@ -622,7 +684,6 @@
 							<p class="mt-2 font-mono text-sm">{pendingImport.name}.{pendingImport.extension}</p>
 						</div>
 					{/if}
-
 					<Select
 						label="Import to Folder"
 						value={targetFolderId}
@@ -636,10 +697,8 @@
 						type="button"
 						disabled={!pendingImport}
 						onclick={confirmImport}
-						class="btn-primary flex-1 disabled:opacity-20"
+						class="btn-primary flex-1 disabled:opacity-20">Import Now</button
 					>
-						Import Now
-					</button>
 				</div>
 			{:else if showModal === 'actions'}
 				<div class="mb-8">
@@ -654,7 +713,7 @@
 								<div class="font-mono text-[11px]">{info.sizeStr}</div>
 								<div class="text-[10px] font-bold uppercase opacity-40">Updated</div>
 								<div class="font-mono text-[11px]">{info.date}</div>
-								<div class="text-[10px] font-bold uppercase opacity-40">Characters</div>
+								<div class="text-[10px] font-bold uppercase opacity-40">Chars</div>
 								<div class="font-mono text-[11px]">{info.chars}</div>
 								<div class="text-[10px] font-bold uppercase opacity-40">Lines</div>
 								<div class="font-mono text-[11px]">{info.lines}</div>
@@ -666,7 +725,7 @@
 					{#if !targetItem?.is_folder}
 						<button
 							type="button"
-							onclick={() => saveToDevice()}
+							onclick={saveToDevice}
 							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
 							>Save to Device...</button
 						>
