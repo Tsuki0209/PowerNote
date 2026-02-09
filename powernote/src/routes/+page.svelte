@@ -11,14 +11,15 @@
 		null
 	);
 
-	// タブ管理：DB上の is_open が true のものを tabs として扱う
+	// デバイス上のファイルハンドルを保持するマップ (ID -> Handle)
+	let fileHandles = $state<Map<string, any>>(new Map());
+
+	// タブ管理
 	let tabs = $derived(
 		files
 			.filter((f) => f.is_open)
 			.sort((a, b) => {
-				// 1. ピン留めを優先
 				if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
-				// 2. 次に sort_order 順
 				return a.sort_order - b.sort_order;
 			})
 	);
@@ -26,20 +27,27 @@
 	let activeTabId = $state<string | null>(null);
 	let selectedFile = $derived(files.find((f) => f.id === activeTabId) || null);
 
-	// ドラッグ中のタブIDを保持
+	// --- オートセーブ (Supabase) ---
+	let autoSaveTimeout: ReturnType<typeof setTimeout>;
+	$effect(() => {
+		if (selectedFile) {
+			const content = selectedFile.content;
+			const id = selectedFile.id;
+			clearTimeout(autoSaveTimeout);
+			autoSaveTimeout = setTimeout(async () => {
+				await supabase.from('files').update({ content }).eq('id', id);
+			}, 500);
+		}
+	});
+
 	let draggingTabId = $state<string | null>(null);
-
-	// 操作対象のアイテム
 	let targetItem = $state<any>(null);
-
 	let activeView = $state<'editor' | 'settings'>('editor');
 	let isDarkMode = $state(true);
-
 	let createType = $state<'file' | 'folder'>('file');
 	let newName = $state('');
 	let targetFolderId = $state<string | null>(null);
 
-	// タブスクロール制御
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
@@ -62,13 +70,9 @@
 		if (file.is_folder) return;
 		activeView = 'editor';
 		activeTabId = file.id;
-
-		// タブが開いていない場合はDBを更新
 		if (!file.is_open) {
 			const { error } = await supabase.from('files').update({ is_open: true }).eq('id', file.id);
-
 			if (!error) {
-				// ローカル状態を即時更新
 				const f = files.find((item) => item.id === file.id);
 				if (f) f.is_open = true;
 			}
@@ -85,20 +89,13 @@
 
 	async function closeTab(id: string, event?: MouseEvent) {
 		event?.stopPropagation();
-
-		// DBのis_openをfalseに更新
 		const { error } = await supabase.from('files').update({ is_open: false }).eq('id', id);
-
 		if (!error) {
 			const closedTabIndex = tabs.findIndex((t) => t.id === id);
-
-			// ローカル状態を更新
 			const f = files.find((item) => item.id === id);
 			if (f) f.is_open = false;
-
 			if (activeTabId === id) {
 				if (tabs.length > 0) {
-					// 閉じたタブの前のタブを選択
 					activeTabId = tabs[Math.max(0, closedTabIndex - 1)].id;
 				} else {
 					activeTabId = null;
@@ -108,80 +105,63 @@
 		setTimeout(checkScroll, 50);
 	}
 
-	// --- ドラッグ&ドロップ ロジック ---
+	// --- デバイス保存ロジック (FileSystemAccessAPI) ---
+	async function saveToDevice(asNewFile = false) {
+		if (!targetItem || targetItem.is_folder) return;
+		try {
+			let handle = fileHandles.get(targetItem.id);
+
+			if (asNewFile || !handle) {
+				handle = await (window as any).showSaveFilePicker({
+					suggestedName: `${targetItem.name}.${targetItem.extension || 'txt'}`,
+					types: [{ description: 'Text File', accept: { 'text/plain': ['.txt'] } }]
+				});
+				fileHandles.set(targetItem.id, handle);
+			}
+
+			const writable = await handle.createWritable();
+			await writable.write(targetItem.content);
+			await writable.close();
+			toast.success(asNewFile ? 'Saved as new file' : 'Device file updated');
+			showModal = null;
+		} catch (err: any) {
+			if (err.name !== 'AbortError') toast.error('Failed to save to device');
+		}
+	}
+
+	// ドラッグ&ドロップ
 	function handleDragStart(id: string) {
 		draggingTabId = id;
 	}
-
 	function handleDragOver(e: DragEvent, targetId: string) {
 		e.preventDefault();
 		if (!draggingTabId || draggingTabId === targetId) return;
-
 		const draggingTab = files.find((f) => f.id === draggingTabId);
 		const targetTab = files.find((f) => f.id === targetId);
 		if (draggingTab?.is_pinned !== targetTab?.is_pinned) return;
-
 		const fromIndex = files.findIndex((f) => f.id === draggingTabId);
 		const toIndex = files.findIndex((f) => f.id === targetId);
-
 		const newFiles = [...files];
 		const [movedItem] = newFiles.splice(fromIndex, 1);
 		newFiles.splice(toIndex, 0, movedItem);
-
-		// sort_orderをローカルで再計算
 		files = newFiles.map((f, i) => ({ ...f, sort_order: i }));
 	}
 
 	async function handleDragEnd() {
 		draggingTabId = null;
-		// 並び順をDBに同期
 		const promises = files.map((f) =>
 			supabase.from('files').update({ sort_order: f.sort_order }).eq('id', f.id)
 		);
-
-		const results = await Promise.all(promises);
-		if (results.some((r) => r.error)) {
-			toast.error('Failed to sync order');
-		} else {
-			await fetchFiles();
-		}
-	}
-
-	async function saveFile() {
-		if (!targetItem || targetItem.is_folder) return;
-		const { error } = await supabase
-			.from('files')
-			.update({ content: targetItem.content })
-			.eq('id', targetItem.id);
-		if (error) toast.error('Failed to save');
-		else {
-			toast.success('Saved successfully');
-			showModal = null;
-		}
-	}
-
-	function downloadFile() {
-		if (!targetItem || targetItem.is_folder) return;
-		const blob = new Blob([targetItem.content], { type: 'text/plain' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `${targetItem.name}.${targetItem.extension || 'txt'}`;
-		a.click();
-		URL.revokeObjectURL(url);
-		showModal = null;
+		await Promise.all(promises);
+		await fetchFiles();
 	}
 
 	async function updateItem() {
 		if (!targetItem || !newName) return;
-		if (targetItem.is_folder && targetFolderId === targetItem.id) {
-			return toast.error('Cannot move a folder into itself');
-		}
 		const { error } = await supabase
 			.from('files')
 			.update({ name: newName, parent_id: targetFolderId })
 			.eq('id', targetItem.id);
-
 		if (error) toast.error('Update failed');
 		else {
 			await fetchFiles();
@@ -197,6 +177,7 @@
 		if (error) toast.error('Delete failed');
 		else {
 			if (activeTabId === idToDelete) activeTabId = null;
+			fileHandles.delete(idToDelete);
 			await fetchFiles();
 			closeModals();
 			toast.success('Deleted');
@@ -206,18 +187,8 @@
 	async function togglePin() {
 		if (!targetItem || targetItem.is_folder) return;
 		const newPinned = !targetItem.is_pinned;
-
-		const { error } = await supabase
-			.from('files')
-			.update({ is_pinned: newPinned })
-			.eq('id', targetItem.id);
-
-		if (error) {
-			toast.error('Failed to update pin');
-		} else {
-			await fetchFiles();
-			toast.success(newPinned ? 'Pinned' : 'Unpinned');
-		}
+		await supabase.from('files').update({ is_pinned: newPinned }).eq('id', targetItem.id);
+		await fetchFiles();
 		showModal = null;
 		setTimeout(checkScroll, 50);
 	}
@@ -231,8 +202,7 @@
 
 	function scrollTabs(direction: 'left' | 'right') {
 		if (!scrollContainer) return;
-		const amount = 240;
-		scrollContainer.scrollBy({ left: direction === 'left' ? -amount : amount, behavior: 'smooth' });
+		scrollContainer.scrollBy({ left: direction === 'left' ? -240 : 240, behavior: 'smooth' });
 	}
 
 	function handleWheel(e: WheelEvent) {
@@ -244,15 +214,9 @@
 		}
 	}
 
-	function openSettings() {
-		activeView = 'settings';
-		activeTabId = null;
-	}
-
 	function toggleTheme() {
 		isDarkMode = !isDarkMode;
-		if (isDarkMode) document.documentElement.classList.add('dark');
-		else document.documentElement.classList.remove('dark');
+		document.documentElement.classList.toggle('dark', isDarkMode);
 	}
 
 	function closeModals() {
@@ -273,7 +237,7 @@
 				parent_id: targetFolderId,
 				content: '',
 				sort_order: files.length,
-				is_open: !isFolder // 新規ファイル作成時に自動でタブを開く
+				is_open: !isFolder
 			}
 		]);
 		if (error) toast.error('Error creating item');
@@ -292,17 +256,19 @@
 			const content = e.target?.result as string;
 			const name = file.name.split('.').slice(0, -1).join('.') || file.name;
 			const ext = file.name.split('.').pop() || 'txt';
-			await supabase.from('files').insert([
-				{
-					name,
-					extension: ext,
-					content,
-					is_folder: false,
-					parent_id: targetFolderId,
-					sort_order: files.length,
-					is_open: true
-				}
-			]);
+			await supabase
+				.from('files')
+				.insert([
+					{
+						name,
+						extension: ext,
+						content,
+						is_folder: false,
+						parent_id: targetFolderId,
+						sort_order: files.length,
+						is_open: true
+					}
+				]);
 			closeModals();
 			fetchFiles();
 		};
@@ -311,7 +277,7 @@
 
 	onMount(() => {
 		fetchFiles();
-		if (isDarkMode) document.documentElement.classList.add('dark');
+		document.documentElement.classList.toggle('dark', isDarkMode);
 		window.addEventListener('resize', checkScroll);
 		return () => window.removeEventListener('resize', checkScroll);
 	});
@@ -327,7 +293,7 @@
 			{files}
 			onSelect={handleSelect}
 			onOpenModal={(t) => (showModal = t)}
-			onOpenSettings={openSettings}
+			onOpenSettings={() => (activeView = 'settings')}
 			onOpenActions={openItemActions}
 			selectedId={activeTabId}
 			{activeView}
@@ -362,8 +328,8 @@
 						>
 							<button
 								onclick={() => scrollTabs('left')}
-								aria-label="Scroll tabs left"
-								class="ml-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm transition-transform hover:scale-110"
+								aria-label="Scroll left"
+								class="ml-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm hover:scale-110"
 							>
 								<svg
 									class="h-4 w-4"
@@ -386,20 +352,21 @@
 					>
 						{#each tabs as tab (tab.id)}
 							<div
-								draggable="true"
 								role="listitem"
+								draggable="true"
 								ondragstart={() => handleDragStart(tab.id)}
 								ondragover={(e) => handleDragOver(e, tab.id)}
 								ondragend={handleDragEnd}
-								class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full transition-all active:cursor-grabbing
-                                {activeTabId === tab.id
+								class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full transition-all active:cursor-grabbing {activeTabId ===
+								tab.id
 									? 'bg-(--accent-color)/10 ring-1 ring-(--accent-color)/30'
-									: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}
-                                {draggingTabId === tab.id ? 'opacity-40' : 'opacity-100'}"
-								title="{tab.name}.{tab.extension}"
+									: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'} {draggingTabId ===
+								tab.id
+									? 'opacity-40'
+									: 'opacity-100'}"
 							>
 								<button
-									onclick={() => (activeTabId = tab.id)}
+									onclick={() => handleSelect(tab)}
 									class="flex h-full min-w-0 flex-1 items-center gap-2 pr-2 pl-4 text-[12px] font-bold transition-colors"
 								>
 									<svg
@@ -408,20 +375,16 @@
 										fill="none"
 										stroke="currentColor"
 										stroke-width="2"
+										><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" /><path
+											d="M13 2v7h7"
+										/></svg
 									>
-										<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
-										<path d="M13 2v7h7" />
-									</svg>
-
 									<span
 										class="pointer-events-none truncate {activeTabId === tab.id
 											? 'text-(--accent-color)'
-											: 'text-(--text-muted)'}"
+											: 'text-(--text-muted)'}">{tab.name}.{tab.extension}</span
 									>
-										{tab.name}.{tab.extension}
-									</span>
 								</button>
-
 								{#if tab.is_pinned}
 									<div
 										class="absolute right-3 flex items-center justify-center text-(--accent-color)"
@@ -432,17 +395,15 @@
 											fill="currentColor"
 											stroke="currentColor"
 											stroke-width="1"
-										>
-											<path
+											><path
 												d="M9 4v1.2a5 5 0 0 0 1.5 3.5l.5.5v4.4l-2 3v1h8v-1l-2-3V9.2l.5-.5a5 5 0 0 0 1.5-3.5V4H9Z"
-											/>
-											<path d="M12 17v7" />
-										</svg>
+											/><path d="M12 17v7" /></svg
+										>
 									</div>
 								{:else}
 									<button
 										onclick={(e) => closeTab(tab.id, e)}
-										aria-label="Close {tab.name} tab"
+										aria-label="Close tab"
 										class="absolute right-2 rounded-full bg-inherit p-1 text-(--text-muted) opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
 									>
 										<svg
@@ -465,8 +426,8 @@
 						>
 							<button
 								onclick={() => scrollTabs('right')}
-								aria-label="Scroll tabs right"
-								class="mr-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm transition-transform hover:scale-110"
+								aria-label="Scroll right"
+								class="mr-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm hover:scale-110"
 							>
 								<svg
 									class="h-4 w-4"
@@ -515,7 +476,7 @@
 				<div class="absolute top-8 right-8 z-20">
 					<button
 						onclick={() => openItemActions(selectedFile)}
-						aria-label="Open actions menu"
+						aria-label="File actions"
 						class="flex h-10 w-10 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md transition-all hover:scale-110 hover:border-(--accent-color)/50 active:scale-95"
 					>
 						<svg
@@ -596,19 +557,33 @@
 				<h3 class="modal-title mb-6">{targetItem?.is_folder ? 'Folder' : 'File'} Actions</h3>
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
-						<button
-							type="button"
-							onclick={saveFile}
-							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
-							>Overwrite Save</button
-						>
+						{#if fileHandles.has(targetItem.id)}
+							<button
+								type="button"
+								onclick={() => saveToDevice(false)}
+								class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
+								>Overwrite Device File</button
+							>
+							<button
+								type="button"
+								onclick={() => saveToDevice(true)}
+								class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
+								>Save as New File...</button
+							>
+						{:else}
+							<button
+								type="button"
+								onclick={() => saveToDevice(true)}
+								class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
+								>Save to Device...</button
+							>
+						{/if}
 						<button
 							type="button"
 							onclick={togglePin}
 							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
+							>{targetItem?.is_pinned ? 'Unpin' : 'Pin'} Tab</button
 						>
-							{targetItem?.is_pinned ? 'Unpin' : 'Pin'} Tab
-						</button>
 					{/if}
 					<button
 						type="button"
