@@ -5,72 +5,92 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg-main: #ffffff;
-  --bg-sidebar: #f8f8f8;
+  --bg-main: #f9fafb;
+  --bg-sidebar: #ffffff;
   --bg-modal: #ffffff;
-  --bg-input: #ffffff;
+  --bg-input: #f3f4f6;
   --border-color: #e5e7eb;
   --text-primary: #111827;
   --text-muted: #6b7280;
-  --accent-color: #000000;
+  --accent-color: #4f46e5;
   --accent-text: #ffffff;
+  --scrollbar-thumb: #d1d5db;
 }
 
 .dark {
-  --bg-main: #1e1e1e;
-  --bg-sidebar: #181818;
-  --bg-modal: #252526;
-  --bg-input: #3c3c3c;
-  --border-color: #454545;
-  --text-primary: #cccccc;
-  --text-muted: #858585;
-  --accent-color: #ffffff;
-  --accent-text: #000000;
+  --bg-main: #0f172a;
+  --bg-sidebar: #1e293b;
+  --bg-modal: #1e293b;
+  --bg-input: #334155;
+  --border-color: #334155;
+  --text-primary: #f1f5f9;
+  --text-muted: #94a3b8;
+  --accent-color: #818cf8;
+  --accent-text: #ffffff;
+  --scrollbar-thumb: #475569;
 }
 
 @layer base {
   body {
-    /* 警告修正: bg-[var(--bg-main)] -> bg-(--bg-main) */
-    @apply bg-(--bg-main) text-(--text-primary) transition-colors duration-200;
+    @apply bg-(--bg-main) text-(--text-primary) transition-colors duration-200 antialiased;
   }
 
+  /* スクロールバーの統一デザイン */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 10px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+  }
+
+  /* 全体的なフォーカスアウトラインの抑制 */
   *:focus {
     outline: none !important;
+    box-shadow: none !important;
   }
 
   .input-base {
     background-color: var(--bg-input);
-    border: 1px solid var(--border-color);
+    border: 1px solid transparent;
     color: var(--text-primary);
+    border-radius: 12px;
     @apply px-4 py-2.5 text-sm transition-all;
   }
 
+  /* 入力フィールドのみ、入力中であることがわかるよう薄くリングを表示 */
   .input-base:focus {
     border-color: var(--accent-color);
     outline: none;
-    /* 必要に応じて、少しだけ光らせるなら以下（お好みで） */
-    box-shadow: 0 0 0 1px var(--accent-color);
   }
 
   .text-label {
     color: var(--text-muted);
-    @apply text-[11px] font-bold uppercase tracking-widest;
+    @apply text-[11px] font-bold uppercase tracking-[0.15em] opacity-70;
   }
 
   .modal-title {
     color: var(--text-primary);
-    @apply text-[11px] font-black uppercase tracking-widest;
+    @apply text-base font-black tracking-tight;
   }
 
   .btn-primary {
     background-color: var(--accent-color);
     color: var(--accent-text);
-    @apply py-3 text-[11px] font-bold uppercase transition-opacity hover:opacity-90;
+    border-radius: 12px;
+    @apply py-3 text-[13px] font-bold transition-all hover:opacity-90 active:scale-[0.98];
   }
 
   .btn-ghost {
     color: var(--text-muted);
-    /* 警告修正: hover:text-[var(--text-primary)] -> hover:text-(--text-primary) */
-    @apply py-3 text-[11px] font-bold uppercase transition-colors hover:text-(--text-primary);
+    border-radius: 12px;
+    @apply py-3 text-[13px] font-bold transition-colors hover:bg-black/5 hover:text-(--text-primary) dark:hover:bg-white/5;
   }
 }
