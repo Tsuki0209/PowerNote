@@ -4,15 +4,23 @@
 	import toast, { Toaster } from 'svelte-french-toast';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import Select from '$lib/components/Select.svelte';
-	import TabManager from '$lib/components/TabManager.svelte'; // 新しくインポート
+	import TabManager from '$lib/components/TabManager.svelte';
 
 	let files = $state<any[]>([]);
 	let isSidebarOpen = $state(true);
 	let showModal = $state<'create' | 'import' | 'actions' | 'rename' | 'delete-confirm' | null>(
 		null
 	);
-	let fileHandles = $state<Map<string, any>>(new Map());
-	let pendingImport = $state<{ name: string; content: string; extension: string } | null>(null);
+	let pendingImport = $state<{
+		name: string;
+		content: string;
+		extension: string;
+		size: number;
+	} | null>(null);
+
+	// --- 制限設定 ---
+	const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+	const MAX_FILE_COUNT = 50;
 
 	// --- 画面分割・状態記憶管理 ---
 	type LayoutMode = '1' | 'V2' | 'H2' | 'V3' | 'Grid4' | 'Grid6';
@@ -30,7 +38,6 @@
 	);
 
 	let activeTabId = $derived(viewStates[activeViewIndex] || null);
-	let selectedFile = $derived(files.find((f) => f.id === activeTabId) || null);
 
 	$effect(() => {
 		if (files.length > 0) {
@@ -39,10 +46,10 @@
 		}
 	});
 
-	// --- オートセーブ ---
+	// --- オートセーブ (テキストファイルのみ) ---
 	let autoSaveTimeout: ReturnType<typeof setTimeout>;
 	$effect(() => {
-		const openFiles = files.filter((f) => f.is_open);
+		const openFiles = files.filter((f) => f.is_open && isTextFile(f.extension));
 		openFiles.forEach((f) => {
 			const content = f.content;
 			const id = f.id;
@@ -70,6 +77,17 @@
 		{ id: null, name: '/ Root' },
 		...folders.map((f) => ({ id: f.id, name: f.name }))
 	]);
+
+	// --- ヘルパー関数 ---
+	function isImage(ext: string) {
+		return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext?.toLowerCase());
+	}
+	function isVideo(ext: string) {
+		return ['mp4', 'webm', 'ogg'].includes(ext?.toLowerCase());
+	}
+	function isTextFile(ext: string) {
+		return !isImage(ext) && !isVideo(ext);
+	}
 
 	async function fetchFiles() {
 		const { data } = await supabase
@@ -121,13 +139,33 @@
 	async function saveToDevice() {
 		if (!targetItem || targetItem.is_folder) return;
 		try {
+			const ext = targetItem.extension || 'txt';
+			let contentToSave: Blob | string = targetItem.content;
+
+			// データURL（Base64）形式で保存されている場合、Blobに変換する
+			if (typeof targetItem.content === 'string' && targetItem.content.startsWith('data:')) {
+				const response = await fetch(targetItem.content);
+				contentToSave = await response.blob();
+			}
+
 			const handle = await (window as any).showSaveFilePicker({
-				suggestedName: `${targetItem.name}.${targetItem.extension || 'txt'}`,
-				types: [{ description: 'Text File', accept: { 'text/plain': ['.txt'] } }]
+				suggestedName: `${targetItem.name}.${ext}`,
+				types: [
+					{
+						description: `${ext.toUpperCase()} File`,
+						accept: {
+							// 拡張子から適切なMIMEタイプを割り当てるか、
+							// 変換したBlobのtypeを使用する
+							[(contentToSave as Blob).type || 'application/octet-stream']: [`.${ext}`]
+						}
+					}
+				]
 			});
+
 			const writable = await handle.createWritable();
-			await writable.write(targetItem.content);
+			await writable.write(contentToSave);
 			await writable.close();
+
 			toast.success('Saved to device');
 			showModal = null;
 		} catch (err: any) {
@@ -182,7 +220,6 @@
 		if (error) toast.error('Delete failed');
 		else {
 			viewStates = viewStates.map((v) => (v === idToDelete ? '' : v));
-			fileHandles.delete(idToDelete);
 			await fetchFiles();
 			closeModals();
 			toast.success('Deleted');
@@ -234,6 +271,9 @@
 
 	async function handleCreate() {
 		if (!newName) return toast.error('Name required');
+		if (files.length >= MAX_FILE_COUNT)
+			return toast.error(`Limit reached (${MAX_FILE_COUNT} items)`);
+
 		const isFolder = createType === 'folder';
 		const { error } = await supabase.from('files').insert([
 			{
@@ -254,19 +294,34 @@
 	}
 
 	function processFile(file: File) {
+		if (file.size > MAX_FILE_SIZE) {
+			return toast.error('File size exceeds 10MB limit');
+		}
+
+		const extension = file.name.split('.').pop() || 'txt';
 		const reader = new FileReader();
+
 		reader.onload = (e) => {
 			pendingImport = {
 				name: file.name.split('.').slice(0, -1).join('.') || file.name,
-				extension: file.name.split('.').pop() || 'txt',
-				content: e.target?.result as string
+				extension: extension,
+				content: e.target?.result as string,
+				size: file.size
 			};
 		};
-		reader.readAsText(file);
+
+		// メディアファイルはデータURLとして、テキストは文字列として読み込む
+		if (isImage(extension) || isVideo(extension)) {
+			reader.readAsDataURL(file);
+		} else {
+			reader.readAsText(file);
+		}
 	}
 
 	async function confirmImport() {
 		if (!pendingImport) return;
+		if (files.length >= MAX_FILE_COUNT) return toast.error('File count limit reached');
+
 		const { error } = await supabase.from('files').insert([
 			{
 				name: pendingImport.name,
@@ -295,13 +350,23 @@
 	function getFileInfo(item: any) {
 		if (!item || item.is_folder) return null;
 		const content = item.content || '';
-		const size = new Blob([content]).size;
-		const lines = content === '' ? 0 : content.split('\n').length;
-		const chars = content.length;
+		const ext = item.extension;
+		const isMedia = isImage(ext) || isVideo(ext);
+
+		// およそのサイズ計算
+		const size = isMedia
+			? Math.round((content.length * 3) / 4) // Base64 approximate size
+			: new Blob([content]).size;
+
+		const lines = isMedia ? 0 : content === '' ? 0 : content.split('\n').length;
+		const chars = isMedia ? 0 : content.length;
 		const date = new Date(item.updated_at).toLocaleString();
+
 		let sizeStr = size + ' B';
-		if (size > 1024) sizeStr = (size / 1024).toFixed(1) + ' KB';
-		return { sizeStr, lines, chars, date };
+		if (size > 1024 * 1024) sizeStr = (size / (1024 * 1024)).toFixed(1) + ' MB';
+		else if (size > 1024) sizeStr = (size / 1024).toFixed(1) + ' KB';
+
+		return { sizeStr, lines, chars, date, isMedia };
 	}
 
 	onMount(() => {
@@ -347,7 +412,7 @@
 		>
 			<button
 				onclick={() => (isSidebarOpen = !isSidebarOpen)}
-				aria-label="Toggle Sidebar"
+				aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
 				class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
 			>
 				<svg
@@ -355,8 +420,10 @@
 					viewBox="0 0 24 24"
 					fill="none"
 					stroke="currentColor"
-					stroke-width="2.5"><path d="M4 6h16M4 12h16M4 18h7" /></svg
+					stroke-width="2.5"
 				>
+					<path d="M4 6h16M4 12h16M4 18h7" />
+				</svg>
 			</button>
 
 			{#if activeView === 'editor'}
@@ -401,9 +468,29 @@
 									<p class="text-sm font-bold">Dark Mode</p>
 									<p class="mt-1 text-xs opacity-50">High contrast dark theme</p>
 								</div>
-								<button onclick={toggleTheme} class="btn-primary px-8 py-2.5"
-									>{isDarkMode ? 'Dark' : 'Light'}</button
+								<button onclick={toggleTheme} class="btn-primary px-8 py-2.5">
+									{isDarkMode ? 'Dark' : 'Light'}
+								</button>
+							</div>
+						</section>
+						<section class="mt-10">
+							<h3 class="text-label mb-6">Usage</h3>
+							<div class="rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8">
+								<div class="flex justify-between text-sm">
+									<span class="opacity-50">Stored Files</span>
+									<span class="font-bold">{files.length} / {MAX_FILE_COUNT}</span>
+								</div>
+								<div
+									class="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/5"
 								>
+									<div
+										class="h-full bg-(--accent-color) transition-all"
+										style="width: {(files.length / MAX_FILE_COUNT) * 100}%"
+									></div>
+								</div>
+								<p class="mt-4 text-[11px] opacity-40">
+									Max 10MB per file. Base64 encoded storage.
+								</p>
 							</div>
 						</section>
 					</div>
@@ -427,7 +514,7 @@
 								>
 									<button
 										onclick={() => openItemActions(viewFile)}
-										aria-label="File Actions"
+										aria-label="Open file actions"
 										class="flex h-8 w-8 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md hover:scale-110"
 									>
 										<svg
@@ -436,20 +523,43 @@
 											fill="none"
 											stroke="currentColor"
 											stroke-width="2.5"
-											><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
+										>
+											<circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
 												cx="12"
 												cy="19"
 												r="1"
-											/></svg
-										>
+											/>
+										</svg>
 									</button>
 								</div>
-								<textarea
-									bind:value={viewFile.content}
-									class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
-									spellcheck="false"
-									placeholder="Start writing..."
-								></textarea>
+
+								{#if isImage(viewFile.extension)}
+									<div class="flex h-full w-full items-center justify-center p-8">
+										<img
+											src={viewFile.content}
+											alt={viewFile.name}
+											class="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
+										/>
+									</div>
+								{:else if isVideo(viewFile.extension)}
+									<div class="flex h-full w-full items-center justify-center p-8">
+										<video
+											controls
+											muted
+											src={viewFile.content}
+											class="max-h-full max-w-full rounded-xl shadow-2xl"
+										>
+											<track kind="captions" />
+										</video>
+									</div>
+								{:else}
+									<textarea
+										bind:value={viewFile.content}
+										class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
+										spellcheck="false"
+										placeholder="Start writing..."
+									></textarea>
+								{/if}
 							{:else}
 								<div
 									class="m-4 flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-(--border-color)/10"
@@ -477,7 +587,6 @@
 							while (viewStates.length < count) viewStates.push('');
 							if (activeViewIndex >= count) activeViewIndex = 0;
 						}}
-						aria-label="Switch to {mode} layout"
 						class="rounded-xl px-3 py-1.5 text-[10px] font-black transition-all {layoutMode === mode
 							? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
 							: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
@@ -551,6 +660,7 @@
 							<input
 								id="file-upload"
 								type="file"
+								accept="image/*,video/*,text/*,.txt,.md,.json,.js,.ts"
 								class="hidden"
 								onchange={(e) => {
 									const file = (e.target as HTMLInputElement).files?.[0];
@@ -563,18 +673,26 @@
 								fill="none"
 								stroke="currentColor"
 								stroke-width="2"
-								><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline
-									points="17 8 12 3 7 8"
-								/><line x1="12" y1="3" x2="12" y2="15" /></svg
 							>
-							<span class="text-xs font-bold opacity-40">Drop file or Click to browse</span>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline
+									points="17 8 12 3 7 8"
+								/><line x1="12" y1="3" x2="12" y2="15" />
+							</svg>
+							<span class="px-4 text-center text-xs font-bold text-balance opacity-40"
+								>Text, Image, or Video (Max 10MB)</span
+							>
 						</div>
 					{:else}
 						<div class="rounded-2xl bg-(--bg-input) p-6">
 							<p class="text-[10px] font-bold tracking-widest uppercase opacity-40">
 								Selected File
 							</p>
-							<p class="mt-2 font-mono text-sm">{pendingImport.name}.{pendingImport.extension}</p>
+							<p class="mt-2 truncate font-mono text-sm">
+								{pendingImport.name}.{pendingImport.extension}
+							</p>
+							<p class="mt-1 text-[10px] opacity-40">
+								Size: {(pendingImport.size / 1024).toFixed(1)} KB
+							</p>
 						</div>
 					{/if}
 					<Select
@@ -606,10 +724,12 @@
 								<div class="font-mono text-[11px]">{info.sizeStr}</div>
 								<div class="text-[10px] font-bold uppercase opacity-40">Updated</div>
 								<div class="font-mono text-[11px]">{info.date}</div>
-								<div class="text-[10px] font-bold uppercase opacity-40">Chars</div>
-								<div class="font-mono text-[11px]">{info.chars}</div>
-								<div class="text-[10px] font-bold uppercase opacity-40">Lines</div>
-								<div class="font-mono text-[11px]">{info.lines}</div>
+								{#if !info.isMedia}
+									<div class="text-[10px] font-bold uppercase opacity-40">Chars</div>
+									<div class="font-mono text-[11px]">{info.chars}</div>
+									<div class="text-[10px] font-bold uppercase opacity-40">Lines</div>
+									<div class="font-mono text-[11px]">{info.lines}</div>
+								{/if}
 							</div>
 						{/if}
 					{/if}
