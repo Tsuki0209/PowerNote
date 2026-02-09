@@ -56,18 +56,35 @@
 		}
 	});
 	// --- オートセーブ (テキストファイルのみ) ---
-	let autoSaveTimeout: ReturnType<typeof setTimeout>;
+	// +page.svelte のオートセーブ部分を修正
+	let autoSaveTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
 	$effect(() => {
+		// 編集中の特定のファイルだけを追跡するようにする
 		const openFiles = files.filter((f) => f.is_open && isTextFile(f.extension));
+
 		openFiles.forEach((f) => {
 			const content = f.content;
 			const id = f.id;
-			clearTimeout(autoSaveTimeout);
-			autoSaveTimeout = setTimeout(async () => {
-				await supabase.from('files').update({ content }).eq('id', id);
-			}, 500);
+
+			// すでにタイマーがあればクリア
+			if (autoSaveTimeouts.has(id)) {
+				clearTimeout(autoSaveTimeouts.get(id));
+			}
+
+			// 個別にタイマーを設定
+			const timeout = setTimeout(async () => {
+				const { error } = await supabase.from('files').update({ content }).eq('id', id);
+				if (!error) {
+					// 保存成功時のみ、特定のフラグを立てるなどの処理が可能
+					autoSaveTimeouts.delete(id);
+				}
+			}, 800); // 500msだと短すぎて競合しやすいため、少し伸ばすと安定します
+
+			autoSaveTimeouts.set(id, timeout);
 		});
 	});
+
 	let draggingTabId = $state<string | null>(null);
 	let targetItem = $state<any>(null);
 	let activeView = $state<'editor' | 'settings'>('editor');
