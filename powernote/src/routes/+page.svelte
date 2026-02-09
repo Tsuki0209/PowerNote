@@ -20,9 +20,19 @@
 	} | null>(null);
 
 	// --- 制限設定 ---
-	const MAX_FILE_SIZE = 10 * 1024 * 1024;
-	// 10MB
-	const MAX_FILE_COUNT = 50;
+	const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+	const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB (Supabase Free Tier)
+
+	// 全ファイルの合計サイズを計算 (Base64は約3/4、テキストはそのまま)
+	let totalSize = $derived(
+		files.reduce((acc, f) => {
+			if (!f.content) return acc;
+			const size = f.content.startsWith('data:')
+				? Math.round((f.content.length * 3) / 4)
+				: new Blob([f.content]).size;
+			return acc + size;
+		}, 0)
+	);
 
 	// --- 画面分割・状態記憶管理 ---
 	type LayoutMode = '1' | 'V2' | 'H2' | 'V3' | 'Grid4' | 'Grid6';
@@ -153,7 +163,6 @@
 			const ext = targetItem.extension || 'txt';
 			let contentToSave: Blob | string = targetItem.content;
 
-			// データURL（Base64）形式で保存されている場合、Blobに変換する
 			if (typeof targetItem.content === 'string' && targetItem.content.startsWith('data:')) {
 				const response = await fetch(targetItem.content);
 				contentToSave = await response.blob();
@@ -165,8 +174,6 @@
 					{
 						description: `${ext.toUpperCase()} File`,
 						accept: {
-							// 拡張子から適切なMIMEタイプを割り当てるか、
-							// 変換したBlobのtypeを使用する
 							[(contentToSave as Blob).type || 'application/octet-stream']: [`.${ext}`]
 						}
 					}
@@ -281,8 +288,6 @@
 
 	async function handleCreate() {
 		if (!newName) return toast.error('Name required');
-		if (files.length >= MAX_FILE_COUNT)
-			return toast.error(`Limit reached (${MAX_FILE_COUNT} items)`);
 		const isFolder = createType === 'folder';
 		const { error } = await supabase.from('files').insert([
 			{
@@ -303,9 +308,20 @@
 		}
 	}
 
+	function formatSize(bytes: number) {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+	}
+
 	function processFile(file: File) {
 		if (file.size > MAX_FILE_SIZE) {
-			return toast.error('File size exceeds 10MB limit');
+			return toast.error('File size exceeds 50MB limit');
+		}
+		if (totalSize + file.size > MAX_TOTAL_SIZE) {
+			return toast.error('Total storage limit exceeded (500MB)');
 		}
 
 		const extension = file.name.split('.').pop() || 'txt';
@@ -318,7 +334,6 @@
 				size: file.size
 			};
 		};
-		// メディアファイルはデータURLとして、テキストは文字列として読み込む
 		if (isImage(extension) || isVideo(extension)) {
 			reader.readAsDataURL(file);
 		} else {
@@ -328,8 +343,6 @@
 
 	async function confirmImport() {
 		if (!pendingImport) return;
-		if (files.length >= MAX_FILE_COUNT) return toast.error('File count limit reached');
-
 		const { error } = await supabase.from('files').insert([
 			{
 				name: pendingImport.name,
@@ -362,19 +375,13 @@
 		const ext = item.extension;
 		const isMedia = isImage(ext) || isVideo(ext);
 
-		// およそのサイズ計算
-		const size = isMedia
-			? Math.round((content.length * 3) / 4) // Base64 approximate size
-			: new Blob([content]).size;
+		const size = isMedia ? Math.round((content.length * 3) / 4) : new Blob([content]).size;
 
 		const lines = isMedia ? 0 : content === '' ? 0 : content.split('\n').length;
 		const chars = isMedia ? 0 : content.length;
 		const date = new Date(item.updated_at).toLocaleString();
 
-		let sizeStr = size + ' B';
-		if (size > 1024 * 1024) sizeStr = (size / (1024 * 1024)).toFixed(1) + ' MB';
-		else if (size > 1024) sizeStr = (size / 1024).toFixed(1) + ' KB';
-		return { sizeStr, lines, chars, date, isMedia };
+		return { sizeStr: formatSize(size), lines, chars, date, isMedia };
 	}
 
 	onMount(() => {
@@ -555,19 +562,19 @@
 								<h3 class="text-label mb-6">Usage</h3>
 								<div class="rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8">
 									<div class="flex justify-between text-sm">
-										<span class="opacity-50">Stored Files</span>
-										<span class="font-bold">{files.length} / {MAX_FILE_COUNT}</span>
+										<span class="opacity-50">Storage Usage</span>
+										<span class="font-bold">{formatSize(totalSize)} / 500 MB</span>
 									</div>
 									<div
 										class="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/5"
 									>
 										<div
 											class="h-full bg-(--accent-color) transition-all"
-											style="width: {(files.length / MAX_FILE_COUNT) * 100}%"
+											style="width: {(totalSize / MAX_TOTAL_SIZE) * 100}%"
 										></div>
 									</div>
 									<p class="mt-4 text-[11px] opacity-40">
-										Max 10MB per file. Base64 encoded storage.
+										Max 50MB per file. Database limit: 500MB total.
 									</p>
 								</div>
 							</section>
@@ -633,8 +640,7 @@
 									{:else}
 										<textarea
 											bind:value={viewFile.content}
-											class="h-full w-full
-											resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
+											class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
 											spellcheck="false"
 											placeholder="Start writing..."
 										></textarea>
@@ -760,7 +766,7 @@
 								/><line x1="12" y1="3" x2="12" y2="15" />
 							</svg>
 							<span class="px-4 text-center text-xs font-bold text-balance opacity-40"
-								>Text, Image, or Video (Max 10MB)</span
+								>Text, Image, or Video (Max 50MB)</span
 							>
 						</div>
 					{:else}
@@ -772,7 +778,7 @@
 								{pendingImport.name}.{pendingImport.extension}
 							</p>
 							<p class="mt-1 text-[10px] opacity-40">
-								Size: {(pendingImport.size / 1024).toFixed(1)} KB
+								Size: {formatSize(pendingImport.size)}
 							</p>
 						</div>
 					{/if}
