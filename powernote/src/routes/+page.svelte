@@ -6,6 +6,7 @@
 	import Select from '$lib/components/Select.svelte';
 	import TabManager from '$lib/components/TabManager.svelte';
 
+	let user = $state<any>(null);
 	let files = $state<any[]>([]);
 	let isSidebarOpen = $state(true);
 	let showModal = $state<'create' | 'import' | 'actions' | 'rename' | 'delete-confirm' | null>(
@@ -19,7 +20,8 @@
 	} | null>(null);
 
 	// --- 制限設定 ---
-	const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+	const MAX_FILE_SIZE = 10 * 1024 * 1024;
+	// 10MB
 	const MAX_FILE_COUNT = 50;
 
 	// --- 画面分割・状態記憶管理 ---
@@ -27,7 +29,6 @@
 	let layoutMode = $state<LayoutMode>('1');
 	let activeViewIndex = $state(0);
 	let viewStates = $state<string[]>(['']);
-
 	let tabs = $derived(
 		files
 			.filter((f) => f.is_open)
@@ -36,7 +37,6 @@
 				return a.sort_order - b.sort_order;
 			})
 	);
-
 	let activeTabId = $derived(viewStates[activeViewIndex] || null);
 
 	$effect(() => {
@@ -45,7 +45,6 @@
 			localStorage.setItem('powernote_split_config', JSON.stringify(state));
 		}
 	});
-
 	// --- オートセーブ (テキストファイルのみ) ---
 	let autoSaveTimeout: ReturnType<typeof setTimeout>;
 	$effect(() => {
@@ -59,7 +58,6 @@
 			}, 500);
 		});
 	});
-
 	let draggingTabId = $state<string | null>(null);
 	let targetItem = $state<any>(null);
 	let activeView = $state<'editor' | 'settings'>('editor');
@@ -67,7 +65,6 @@
 	let createType = $state<'file' | 'folder'>('file');
 	let newName = $state('');
 	let targetFolderId = $state<string | null>(null);
-
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
@@ -77,7 +74,6 @@
 		{ id: null, name: '/ Root' },
 		...folders.map((f) => ({ id: f.id, name: f.name }))
 	]);
-
 	// --- ヘルパー関数 ---
 	function isImage(ext: string) {
 		return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext?.toLowerCase());
@@ -89,10 +85,25 @@
 		return !isImage(ext) && !isVideo(ext);
 	}
 
+	async function login() {
+		await supabase.auth.signInWithOAuth({
+			provider: 'google',
+			options: { redirectTo: window.location.origin }
+		});
+	}
+
+	async function logout() {
+		await supabase.auth.signOut();
+		user = null;
+		files = [];
+	}
+
 	async function fetchFiles() {
+		if (!user) return;
 		const { data } = await supabase
 			.from('files')
 			.select('*')
+			.eq('user_id', user.id)
 			.order('sort_order', { ascending: true });
 		files = data || [];
 		const saved = localStorage.getItem('powernote_split_config');
@@ -161,7 +172,6 @@
 					}
 				]
 			});
-
 			const writable = await handle.createWritable();
 			await writable.write(contentToSave);
 			await writable.close();
@@ -273,7 +283,6 @@
 		if (!newName) return toast.error('Name required');
 		if (files.length >= MAX_FILE_COUNT)
 			return toast.error(`Limit reached (${MAX_FILE_COUNT} items)`);
-
 		const isFolder = createType === 'folder';
 		const { error } = await supabase.from('files').insert([
 			{
@@ -283,7 +292,8 @@
 				parent_id: targetFolderId,
 				content: '',
 				sort_order: files.length,
-				is_open: !isFolder
+				is_open: !isFolder,
+				user_id: user.id
 			}
 		]);
 		if (error) toast.error('Error creating item');
@@ -300,7 +310,6 @@
 
 		const extension = file.name.split('.').pop() || 'txt';
 		const reader = new FileReader();
-
 		reader.onload = (e) => {
 			pendingImport = {
 				name: file.name.split('.').slice(0, -1).join('.') || file.name,
@@ -309,7 +318,6 @@
 				size: file.size
 			};
 		};
-
 		// メディアファイルはデータURLとして、テキストは文字列として読み込む
 		if (isImage(extension) || isVideo(extension)) {
 			reader.readAsDataURL(file);
@@ -330,7 +338,8 @@
 				is_folder: false,
 				parent_id: targetFolderId,
 				sort_order: files.length,
-				is_open: true
+				is_open: true,
+				user_id: user.id
 			}
 		]);
 		if (error) toast.error('Import failed');
@@ -365,17 +374,33 @@
 		let sizeStr = size + ' B';
 		if (size > 1024 * 1024) sizeStr = (size / (1024 * 1024)).toFixed(1) + ' MB';
 		else if (size > 1024) sizeStr = (size / 1024).toFixed(1) + ' KB';
-
 		return { sizeStr, lines, chars, date, isMedia };
 	}
 
 	onMount(() => {
-		fetchFiles();
+		(async () => {
+			const {
+				data: { session }
+			} = await supabase.auth.getSession();
+			user = session?.user ?? null;
+			if (user) fetchFiles();
+		})();
+
+		const {
+			data: { subscription }
+		} = supabase.auth.onAuthStateChange((_event, session) => {
+			user = session?.user ?? null;
+			if (user) fetchFiles();
+		});
+
 		document.documentElement.classList.toggle('dark', isDarkMode);
 		window.addEventListener('resize', checkScroll);
-		return () => window.removeEventListener('resize', checkScroll);
-	});
 
+		return () => {
+			subscription.unsubscribe();
+			window.removeEventListener('resize', checkScroll);
+		};
+	});
 	const gridClasses: Record<LayoutMode, string> = {
 		'1': 'grid-cols-1',
 		V2: 'grid-cols-2',
@@ -389,215 +414,271 @@
 
 <Toaster />
 
-<div
-	class="flex h-screen w-full gap-2 overflow-hidden bg-(--bg-main) p-2 font-sans md:gap-4 md:p-4"
->
-	{#if isSidebarOpen}
-		<Sidebar
-			{files}
-			onSelect={handleSelect}
-			onOpenModal={(t) => (showModal = t)}
-			onOpenSettings={() => (activeView = 'settings')}
-			onOpenActions={openItemActions}
-			selectedId={activeTabId}
-			{activeView}
-		/>
-	{/if}
-
-	<main
-		class="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
-	>
-		<header
-			class="flex h-16 shrink-0 items-center gap-2 border-b border-(--border-color)/30 bg-(--bg-sidebar) px-4"
+{#if !user}
+	<div class="flex h-screen w-full flex-col items-center justify-center bg-(--bg-main) p-4">
+		<div
+			class="w-full max-w-sm rounded-4xl border border-(--border-color) bg-(--bg-modal) p-12 text-center shadow-2xl"
 		>
+			<h1 class="mb-8 text-3xl font-black tracking-tighter">PowerNote</h1>
+			<p class="mb-10 text-sm opacity-50">Please sign in to manage your notes.</p>
 			<button
-				onclick={() => (isSidebarOpen = !isSidebarOpen)}
-				aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-				class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+				onclick={login}
+				class="btn-primary flex w-full items-center justify-center gap-3 py-4"
 			>
-				<svg
-					class="h-5 w-5 opacity-40"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.5"
-				>
-					<path d="M4 6h16M4 12h16M4 18h7" />
+				<svg class="h-5 w-5" viewBox="0 0 24 24">
+					<path
+						fill="currentColor"
+						d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+					/>
+					<path
+						fill="currentColor"
+						d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+					/>
+					<path
+						fill="currentColor"
+						d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+					/>
+					<path
+						fill="currentColor"
+						d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.17-4.53z"
+					/>
 				</svg>
+				Sign in with Google
 			</button>
+		</div>
+	</div>
+{:else}
+	<div
+		class="flex h-screen w-full gap-2 overflow-hidden bg-(--bg-main) p-2 font-sans md:gap-4 md:p-4"
+	>
+		{#if isSidebarOpen}
+			<Sidebar
+				{files}
+				onSelect={handleSelect}
+				onOpenModal={(t) => (showModal = t)}
+				onOpenSettings={() => (activeView = 'settings')}
+				onOpenActions={openItemActions}
+				selectedId={activeTabId}
+				{activeView}
+			/>
+		{/if}
 
-			{#if activeView === 'editor'}
-				<TabManager
-					{tabs}
-					{activeTabId}
-					{draggingTabId}
-					{canScrollLeft}
-					{canScrollRight}
-					bind:scrollContainer
-					onSelect={handleSelect}
-					onClose={closeTab}
-					onDragStart={handleDragStart}
-					onDragOver={handleDragOver}
-					onDragEnd={handleDragEnd}
-					onScroll={checkScroll}
-					onWheel={handleWheel}
-					{scrollTabs}
-				/>
-			{:else}
-				<div class="flex h-full items-center px-2">
-					<div
-						class="flex h-9 items-center rounded-full bg-(--accent-color)/10 px-4 ring-1 ring-(--accent-color)/20"
+		<main
+			class="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
+		>
+			<header
+				class="flex h-16 shrink-0 items-center gap-2 border-b border-(--border-color)/30 bg-(--bg-sidebar) px-4"
+			>
+				<button
+					onclick={() => (isSidebarOpen = !isSidebarOpen)}
+					aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+				>
+					<svg
+						class="h-5 w-5 opacity-40"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
 					>
-						<span class="text-[12px] font-bold text-(--accent-color)">Settings</span>
-					</div>
-				</div>
-			{/if}
-		</header>
+						<path d="M4 6h16M4 12h16M4 18h7" />
+					</svg>
+				</button>
 
-		<div class="relative flex-1 overflow-hidden">
-			{#if activeView === 'settings'}
-				<div class="h-full overflow-y-auto scroll-smooth px-4">
-					<div class="mx-auto max-w-2xl px-8 py-16">
-						<h2 class="mb-12 text-4xl font-black tracking-tighter">Settings</h2>
-						<section>
-							<h3 class="text-label mb-6">Appearance</h3>
-							<div
-								class="flex items-center justify-between rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8"
-							>
-								<div>
-									<p class="text-sm font-bold">Dark Mode</p>
-									<p class="mt-1 text-xs opacity-50">High contrast dark theme</p>
-								</div>
-								<button onclick={toggleTheme} class="btn-primary px-8 py-2.5">
-									{isDarkMode ? 'Dark' : 'Light'}
-								</button>
-							</div>
-						</section>
-						<section class="mt-10">
-							<h3 class="text-label mb-6">Usage</h3>
-							<div class="rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8">
-								<div class="flex justify-between text-sm">
-									<span class="opacity-50">Stored Files</span>
-									<span class="font-bold">{files.length} / {MAX_FILE_COUNT}</span>
-								</div>
-								<div
-									class="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/5"
-								>
-									<div
-										class="h-full bg-(--accent-color) transition-all"
-										style="width: {(files.length / MAX_FILE_COUNT) * 100}%"
-									></div>
-								</div>
-								<p class="mt-4 text-[11px] opacity-40">
-									Max 10MB per file. Base64 encoded storage.
-								</p>
-							</div>
-						</section>
-					</div>
-				</div>
-			{:else}
-				<div class="grid h-full w-full divide-(--border-color)/30 {gridClasses[layoutMode]}">
-					{#each Array(getViewCount(layoutMode)) as _, i}
-						{@const viewId = viewStates[i]}
-						{@const viewFile = files.find((f) => f.id === viewId)}
+				{#if activeView === 'editor'}
+					<TabManager
+						{tabs}
+						{activeTabId}
+						{draggingTabId}
+						{canScrollLeft}
+						{canScrollRight}
+						bind:scrollContainer
+						onSelect={handleSelect}
+						onClose={closeTab}
+						onDragStart={handleDragStart}
+						onDragOver={handleDragOver}
+						onDragEnd={handleDragEnd}
+						onScroll={checkScroll}
+						onWheel={handleWheel}
+						{scrollTabs}
+					/>
+				{:else}
+					<div class="flex h-full items-center px-2">
 						<div
-							role="presentation"
-							onclick={() => (activeViewIndex = i)}
-							class="group/pane relative flex flex-col border border-(--border-color)/10 transition-colors {activeViewIndex ===
-							i
-								? 'bg-(--accent-color)/2 ring-2 ring-(--accent-color)/20 ring-inset'
-								: ''}"
+							class="flex h-9 items-center rounded-full bg-(--accent-color)/10 px-4 ring-1 ring-(--accent-color)/20"
 						>
-							{#if viewFile}
+							<span class="text-[12px] font-bold text-(--accent-color)">Settings</span>
+						</div>
+					</div>
+				{/if}
+			</header>
+
+			<div class="relative flex-1 overflow-hidden">
+				{#if activeView === 'settings'}
+					<div class="h-full overflow-y-auto scroll-smooth px-4">
+						<div class="mx-auto max-w-2xl px-8 py-16">
+							<h2 class="mb-12 text-4xl font-black tracking-tighter">Settings</h2>
+
+							<section class="mb-10">
+								<h3 class="text-label mb-6">Account</h3>
 								<div
-									class="absolute top-6 right-6 z-20 opacity-0 transition-opacity group-hover/pane:opacity-100"
+									class="flex items-center justify-between rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8"
 								>
+									<div>
+										<p class="text-sm font-bold">{user?.email}</p>
+										<p class="mt-1 text-xs opacity-50">Signed in with Google</p>
+									</div>
 									<button
-										onclick={() => openItemActions(viewFile)}
-										aria-label="Open file actions"
-										class="flex h-8 w-8 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md hover:scale-110"
+										onclick={logout}
+										class="btn-ghost px-6 py-2.5 text-red-500 hover:bg-red-500/10"
 									>
-										<svg
-											class="h-4 w-4 opacity-60"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2.5"
-										>
-											<circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
-												cx="12"
-												cy="19"
-												r="1"
-											/>
-										</svg>
+										Sign Out
 									</button>
 								</div>
+							</section>
 
-								{#if isImage(viewFile.extension)}
-									<div class="flex h-full w-full items-center justify-center p-8">
-										<img
-											src={viewFile.content}
-											alt={viewFile.name}
-											class="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
-										/>
-									</div>
-								{:else if isVideo(viewFile.extension)}
-									<div class="flex h-full w-full items-center justify-center p-8">
-										<video
-											controls
-											muted
-											src={viewFile.content}
-											class="max-h-full max-w-full rounded-xl shadow-2xl"
-										>
-											<track kind="captions" />
-										</video>
-									</div>
-								{:else}
-									<textarea
-										bind:value={viewFile.content}
-										class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
-										spellcheck="false"
-										placeholder="Start writing..."
-									></textarea>
-								{/if}
-							{:else}
+							<section>
+								<h3 class="text-label mb-6">Appearance</h3>
 								<div
-									class="m-4 flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-(--border-color)/10"
+									class="flex items-center justify-between rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8"
 								>
-									<span class="text-[9px] font-black tracking-widest uppercase opacity-20"
-										>View {i + 1}: Select file</span
-									>
+									<div>
+										<p class="text-sm font-bold">Dark Mode</p>
+										<p class="mt-1 text-xs opacity-50">High contrast dark theme</p>
+									</div>
+									<button onclick={toggleTheme} class="btn-primary px-8 py-2.5">
+										{isDarkMode ? 'Dark' : 'Light'}
+									</button>
 								</div>
-							{/if}
+							</section>
+							<section class="mt-10">
+								<h3 class="text-label mb-6">Usage</h3>
+								<div class="rounded-3xl border border-(--border-color)/50 bg-(--bg-main) p-8">
+									<div class="flex justify-between text-sm">
+										<span class="opacity-50">Stored Files</span>
+										<span class="font-bold">{files.length} / {MAX_FILE_COUNT}</span>
+									</div>
+									<div
+										class="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/5"
+									>
+										<div
+											class="h-full bg-(--accent-color) transition-all"
+											style="width: {(files.length / MAX_FILE_COUNT) * 100}%"
+										></div>
+									</div>
+									<p class="mt-4 text-[11px] opacity-40">
+										Max 10MB per file. Base64 encoded storage.
+									</p>
+								</div>
+							</section>
 						</div>
+					</div>
+				{:else}
+					<div class="grid h-full w-full divide-(--border-color)/30 {gridClasses[layoutMode]}">
+						{#each Array(getViewCount(layoutMode)) as _, i}
+							{@const viewId = viewStates[i]}
+							{@const viewFile = files.find((f) => f.id === viewId)}
+							<div
+								role="presentation"
+								onclick={() => (activeViewIndex = i)}
+								class="group/pane relative flex flex-col border border-(--border-color)/10 transition-colors {activeViewIndex ===
+								i
+									? 'bg-(--accent-color)/2 ring-2 ring-(--accent-color)/20 ring-inset'
+									: ''}"
+							>
+								{#if viewFile}
+									<div
+										class="absolute top-6 right-6 z-20 opacity-0 transition-opacity group-hover/pane:opacity-100"
+									>
+										<button
+											onclick={() => openItemActions(viewFile)}
+											aria-label="Open file actions"
+											class="flex h-8 w-8 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md hover:scale-110"
+										>
+											<svg
+												class="h-4 w-4 opacity-60"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2.5"
+											>
+												<circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
+													cx="12"
+													cy="19"
+													r="1"
+												/>
+											</svg>
+										</button>
+									</div>
+
+									{#if isImage(viewFile.extension)}
+										<div class="flex h-full w-full items-center justify-center p-8">
+											<img
+												src={viewFile.content}
+												alt={viewFile.name}
+												class="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
+											/>
+										</div>
+									{:else if isVideo(viewFile.extension)}
+										<div class="flex h-full w-full items-center justify-center p-8">
+											<video
+												controls
+												muted
+												src={viewFile.content}
+												class="max-h-full max-w-full rounded-xl shadow-2xl"
+											>
+												<track kind="captions" />
+											</video>
+										</div>
+									{:else}
+										<textarea
+											bind:value={viewFile.content}
+											class="h-full w-full
+											resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
+											spellcheck="false"
+											placeholder="Start writing..."
+										></textarea>
+									{/if}
+								{:else}
+									<div
+										class="m-4 flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-(--border-color)/10"
+									>
+										<span class="text-[9px] font-black tracking-widest uppercase opacity-20"
+											>View {i + 1}: Select file</span
+										>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			{#if activeView === 'editor'}
+				<div
+					class="absolute right-6 bottom-6 z-40 flex items-center gap-1 rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl"
+				>
+					{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
+						<button
+							onclick={() => {
+								layoutMode = mode as LayoutMode;
+								const count = getViewCount(layoutMode);
+								while (viewStates.length < count) viewStates.push('');
+								if (activeViewIndex >= count) activeViewIndex = 0;
+							}}
+							class="rounded-xl px-3 py-1.5 text-[10px] font-black transition-all {layoutMode ===
+							mode
+								? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
+								: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
+						>
+							{mode}
+						</button>
 					{/each}
 				</div>
 			{/if}
-		</div>
-
-		{#if activeView === 'editor'}
-			<div
-				class="absolute right-6 bottom-6 z-40 flex items-center gap-1 rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl"
-			>
-				{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
-					<button
-						onclick={() => {
-							layoutMode = mode as LayoutMode;
-							const count = getViewCount(layoutMode);
-							while (viewStates.length < count) viewStates.push('');
-							if (activeViewIndex >= count) activeViewIndex = 0;
-						}}
-						class="rounded-xl px-3 py-1.5 text-[10px] font-black transition-all {layoutMode === mode
-							? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
-							: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
-					>
-						{mode}
-					</button>
-				{/each}
-			</div>
-		{/if}
-	</main>
-</div>
+		</main>
+	</div>
+{/if}
 
 {#if showModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
