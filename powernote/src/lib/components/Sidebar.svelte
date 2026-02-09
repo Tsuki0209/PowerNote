@@ -37,19 +37,21 @@
 			<h2 class="text-lg font-black tracking-tight">PowerNote</h2>
 		</div>
 
-		<div class="flex flex-col gap-2">
+		<div class="flex gap-2">
 			<button
 				onclick={() => onOpenModal('create')}
-				class="btn-primary flex items-center justify-center gap-2"
+				title="New Item"
+				class="btn-primary flex flex-1 items-center justify-center gap-2 py-3"
 			>
 				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
 					><path d="M12 5v14M5 12h14" /></svg
 				>
-				New Item
+				<span class="text-xs">New</span>
 			</button>
 			<button
 				onclick={() => onOpenModal('import')}
-				class="btn-ghost flex items-center justify-center gap-2 border border-(--border-color)/50"
+				title="Import File"
+				class="btn-ghost flex flex-1 items-center justify-center gap-2 border border-(--border-color)/50 py-3"
 			>
 				<svg
 					class="h-4 w-4"
@@ -59,7 +61,7 @@
 					stroke-width="2.5"
 					><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg
 				>
-				Import
+				<span class="text-xs">Import</span>
 			</button>
 		</div>
 	</div>
