@@ -1,3 +1,76 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg-main: #ffffff;
+  --bg-sidebar: #f8f8f8;
+  --bg-modal: #ffffff;
+  --bg-input: #ffffff;
+  --border-color: #e5e7eb;
+  --text-primary: #111827;
+  --text-muted: #6b7280;
+  --accent-color: #000000;
+  --accent-text: #ffffff;
+}
+
+.dark {
+  --bg-main: #1e1e1e;
+  --bg-sidebar: #181818;
+  --bg-modal: #252526;
+  --bg-input: #3c3c3c;
+  --border-color: #454545;
+  --text-primary: #cccccc;
+  --text-muted: #858585;
+  --accent-color: #ffffff;
+  --accent-text: #000000;
+}
+
+@layer base {
+  body {
+    /* 警告修正: bg-[var(--bg-main)] -> bg-(--bg-main) */
+    @apply bg-(--bg-main) text-(--text-primary) transition-colors duration-200;
+  }
+
+  *:focus {
+    outline: none !important;
+  }
+
+  .input-base {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    @apply px-4 py-2.5 text-sm transition-all;
+  }
+
+  .input-base:focus {
+    border-color: var(--accent-color);
+    outline: none;
+    /* 必要に応じて、少しだけ光らせるなら以下（お好みで） */
+    box-shadow: 0 0 0 1px var(--accent-color);
+  }
+
+  .text-label {
+    color: var(--text-muted);
+    @apply text-[11px] font-bold uppercase tracking-widest;
+  }
+
+  .modal-title {
+    color: var(--text-primary);
+    @apply text-[11px] font-black uppercase tracking-widest;
+  }
+
+  .btn-primary {
+    background-color: var(--accent-color);
+    color: var(--accent-text);
+    @apply py-3 text-[11px] font-bold uppercase transition-opacity hover:opacity-90;
+  }
+
+  .btn-ghost {
+    color: var(--text-muted);
+    /* 警告修正: hover:text-[var(--text-primary)] -> hover:text-(--text-primary) */
+    @apply py-3 text-[11px] font-bold uppercase transition-colors hover:text-(--text-primary);
+  }
+}

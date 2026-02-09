@@ -38,6 +38,7 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
-		"@supabase/supabase-js": "^2.95.3"
+		"@supabase/supabase-js": "^2.95.3",
+		"svelte-french-toast": "^1.2.0"
 	}
 }
