@@ -40,14 +40,17 @@
 		...folders.map((f) => ({ id: f.id, name: f.name }))
 	]);
 
-	// ピン留めタブを先頭にする表示用配列
+	// ピン留めタブを先頭にし、かつsort_order順にする表示用配列
 	let sortedTabs = $derived([
-		...tabs.filter((t) => t.isPinned),
-		...tabs.filter((t) => !t.isPinned)
+		...tabs.filter((t) => t.is_pinned).sort((a, b) => a.sort_order - b.sort_order),
+		...tabs.filter((t) => !t.is_pinned).sort((a, b) => a.sort_order - b.sort_order)
 	]);
 
 	async function fetchFiles() {
-		const { data } = await supabase.from('files').select('*').order('name', { ascending: true });
+		const { data } = await supabase
+			.from('files')
+			.select('*')
+			.order('sort_order', { ascending: true });
 		files = data || [];
 	}
 
@@ -56,7 +59,7 @@
 		activeView = 'editor';
 		const existingTab = tabs.find((t) => t.id === file.id);
 		if (!existingTab) {
-			tabs = [...tabs, { ...file, isPinned: false }];
+			tabs = [...tabs, { ...file }];
 		}
 		activeTabId = file.id;
 		setTimeout(checkScroll, 50);
@@ -94,7 +97,7 @@
 
 		const draggingTab = tabs.find((t) => t.id === draggingTabId);
 		const targetTab = tabs.find((t) => t.id === targetId);
-		if (draggingTab?.isPinned !== targetTab?.isPinned) return;
+		if (draggingTab?.is_pinned !== targetTab?.is_pinned) return;
 
 		const fromIndex = tabs.findIndex((t) => t.id === draggingTabId);
 		const toIndex = tabs.findIndex((t) => t.id === targetId);
@@ -102,11 +105,27 @@
 		const newTabs = [...tabs];
 		const [movedItem] = newTabs.splice(fromIndex, 1);
 		newTabs.splice(toIndex, 0, movedItem);
-		tabs = newTabs;
+
+		// 並び順(sort_order)をローカルで更新
+		tabs = newTabs.map((t, i) => ({ ...t, sort_order: i }));
 	}
 
-	function handleDragEnd() {
+	async function handleDragEnd() {
 		draggingTabId = null;
+		// upsertではなく個別にupdateを行う（エラー回避のため）
+		const promises = tabs.map((t) =>
+			supabase.from('files').update({ sort_order: t.sort_order }).eq('id', t.id)
+		);
+
+		const results = await Promise.all(promises);
+		const hasError = results.some((r) => r.error);
+
+		if (hasError) {
+			toast.error('Failed to sync order');
+		} else {
+			// サイドバーの並びも更新するために再取得
+			await fetchFiles();
+		}
 	}
 
 	async function saveFile() {
@@ -170,11 +189,25 @@
 		}
 	}
 
-	function togglePin() {
+	async function togglePin() {
 		if (!targetItem || targetItem.is_folder) return;
-		const tab = tabs.find((t) => t.id === targetItem.id);
-		if (tab) {
-			tab.isPinned = !tab.isPinned;
+		const newPinned = !targetItem.is_pinned;
+
+		const { error } = await supabase
+			.from('files')
+			.update({ is_pinned: newPinned })
+			.eq('id', targetItem.id);
+
+		if (error) {
+			toast.error('Failed to update pin');
+		} else {
+			const tab = tabs.find((t) => t.id === targetItem.id);
+			if (tab) tab.is_pinned = newPinned;
+			// サイドバー側のアイコンも即時更新するために必要
+			const file = files.find((f) => f.id === targetItem.id);
+			if (file) file.is_pinned = newPinned;
+
+			toast.success(newPinned ? 'Pinned' : 'Unpinned');
 		}
 		showModal = null;
 		setTimeout(checkScroll, 50);
@@ -229,7 +262,8 @@
 				extension: isFolder ? null : 'txt',
 				is_folder: isFolder,
 				parent_id: targetFolderId,
-				content: ''
+				content: '',
+				sort_order: files.length
 			}
 		]);
 		if (error) toast.error('Error creating item');
@@ -248,9 +282,16 @@
 			const content = e.target?.result as string;
 			const name = file.name.split('.').slice(0, -1).join('.') || file.name;
 			const ext = file.name.split('.').pop() || 'txt';
-			await supabase
-				.from('files')
-				.insert([{ name, extension: ext, content, is_folder: false, parent_id: targetFolderId }]);
+			await supabase.from('files').insert([
+				{
+					name,
+					extension: ext,
+					content,
+					is_folder: false,
+					parent_id: targetFolderId,
+					sort_order: files.length
+				}
+			]);
 			closeModals();
 			fetchFiles();
 		};
@@ -351,15 +392,15 @@
 									class="flex h-full min-w-0 flex-1 items-center gap-2 pr-2 pl-4 text-[12px] font-bold transition-colors"
 								>
 									<svg
-										class="h-3.5 w-3.5 shrink-0 {tab.isPinned
+										class="h-3.5 w-3.5 shrink-0 {tab.is_pinned
 											? 'text-(--accent-color)'
 											: 'opacity-40'}"
 										viewBox="0 0 24 24"
-										fill={tab.isPinned ? 'currentColor' : 'none'}
+										fill={tab.is_pinned ? 'currentColor' : 'none'}
 										stroke="currentColor"
 										stroke-width="2"
 									>
-										{#if tab.isPinned}
+										{#if tab.is_pinned}
 											<path d="M12 2L12 22M12 2L19 9M12 2L5 9" />
 										{:else}
 											<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" /><path
@@ -375,7 +416,7 @@
 										{tab.name}.{tab.extension}
 									</span>
 								</button>
-								{#if !tab.isPinned}
+								{#if !tab.is_pinned}
 									<button
 										onclick={(e) => closeTab(tab.id, e)}
 										aria-label="Close {tab.name} tab"
@@ -628,12 +669,12 @@
 							onclick={togglePin}
 							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
 							><svg
-								class="h-4 w-4 {targetItem?.isPinned ? 'text-(--accent-color)' : ''}"
+								class="h-4 w-4 {targetItem?.is_pinned ? 'text-(--accent-color)' : ''}"
 								viewBox="0 0 24 24"
-								fill={targetItem?.isPinned ? 'currentColor' : 'none'}
+								fill={targetItem?.is_pinned ? 'currentColor' : 'none'}
 								stroke="currentColor"
 								stroke-width="2"><path d="M12 2L12 22M12 2L19 9M12 2L5 9" /></svg
-							>Pin Tab</button
+							>{targetItem?.is_pinned ? 'Unpin' : 'Pin'} Tab</button
 						>
 					{/if}
 					<button
