@@ -10,8 +10,6 @@
 	let showModal = $state<'create' | 'import' | 'actions' | 'rename' | 'delete-confirm' | null>(
 		null
 	);
-
-	// デバイス上のファイルハンドルを保持するマップ (ID -> Handle)
 	let fileHandles = $state<Map<string, any>>(new Map());
 
 	// インポート待機用
@@ -26,7 +24,6 @@
 				return a.sort_order - b.sort_order;
 			})
 	);
-
 	let activeTabId = $state<string | null>(null);
 	let selectedFile = $derived(files.find((f) => f.id === activeTabId) || null);
 
@@ -108,22 +105,18 @@
 		setTimeout(checkScroll, 50);
 	}
 
-	// --- デバイス保存ロジック ---
-	async function saveToDevice(asNewFile = false) {
+	// --- デバイス保存ロジック (上書き機能を削除) ---
+	async function saveToDevice() {
 		if (!targetItem || targetItem.is_folder) return;
 		try {
-			let handle = fileHandles.get(targetItem.id);
-			if (asNewFile || !handle) {
-				handle = await (window as any).showSaveFilePicker({
-					suggestedName: `${targetItem.name}.${targetItem.extension || 'txt'}`,
-					types: [{ description: 'Text File', accept: { 'text/plain': ['.txt'] } }]
-				});
-				fileHandles.set(targetItem.id, handle);
-			}
+			const handle = await (window as any).showSaveFilePicker({
+				suggestedName: `${targetItem.name}.${targetItem.extension || 'txt'}`,
+				types: [{ description: 'Text File', accept: { 'text/plain': ['.txt'] } }]
+			});
 			const writable = await handle.createWritable();
 			await writable.write(targetItem.content);
 			await writable.close();
-			toast.success(asNewFile ? 'Saved as new file' : 'Device file updated');
+			toast.success('Saved to device');
 			showModal = null;
 		} catch (err: any) {
 			if (err.name !== 'AbortError') toast.error('Failed to save to device');
@@ -637,27 +630,12 @@
 				<h3 class="modal-title mb-6">{targetItem?.is_folder ? 'Folder' : 'File'} Actions</h3>
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
-						{#if fileHandles.has(targetItem.id)}
-							<button
-								type="button"
-								onclick={() => saveToDevice(false)}
-								class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
-								>Overwrite Device File</button
-							>
-							<button
-								type="button"
-								onclick={() => saveToDevice(true)}
-								class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
-								>Save as New File...</button
-							>
-						{:else}
-							<button
-								type="button"
-								onclick={() => saveToDevice(true)}
-								class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
-								>Save to Device...</button
-							>
-						{/if}
+						<button
+							type="button"
+							onclick={() => saveToDevice()}
+							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
+							>Save to Device...</button
+						>
 						<button
 							type="button"
 							onclick={togglePin}
