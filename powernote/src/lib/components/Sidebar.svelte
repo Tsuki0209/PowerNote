@@ -1,14 +1,16 @@
 <script lang="ts">
 	import TreeItem from './TreeItem.svelte';
 
-	let { files, onSelect, onOpenModal, onOpenSettings, selectedId, activeView } = $props<{
-		files: any[];
-		onSelect: (file: any) => void;
-		onOpenModal: (type: 'create' | 'import') => void;
-		onOpenSettings: () => void;
-		selectedId: string | null;
-		activeView: 'editor' | 'settings';
-	}>();
+	let { files, onSelect, onOpenModal, onOpenSettings, onOpenActions, selectedId, activeView } =
+		$props<{
+			files: any[];
+			onSelect: (file: any) => void;
+			onOpenModal: (type: 'create' | 'import') => void;
+			onOpenSettings: () => void;
+			onOpenActions: (item: any) => void;
+			selectedId: string | null;
+			activeView: 'editor' | 'settings';
+		}>();
 
 	let rootItems = $derived(files.filter((f: any) => !f.parent_id));
 </script>
@@ -64,8 +66,8 @@
 
 	<nav class="flex-1 overflow-y-auto px-4 pb-6">
 		<div class="text-label mb-4 px-4">Explorer</div>
-		{#each rootItems as item}
-			<TreeItem {item} allFiles={files} {onSelect} {selectedId} />
+		{#each rootItems as item (item.id)}
+			<TreeItem {item} allFiles={files} {onSelect} {selectedId} {onOpenActions} />
 		{:else}
 			<div class="py-10 text-center text-[11px] font-bold uppercase opacity-20 tracking-widest">
 				No items

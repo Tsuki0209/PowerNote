@@ -16,6 +16,9 @@
 	let activeTabId = $state<string | null>(null);
 	let selectedFile = $derived(tabs.find((t) => t.id === activeTabId) || null);
 
+	// 操作対象のアイテム（ツリーから「...」で選んだもの、またはアクティブなファイル）
+	let targetItem = $state<any>(null);
+
 	let activeView = $state<'editor' | 'settings'>('editor');
 	let isDarkMode = $state(true);
 
@@ -34,7 +37,6 @@
 		...folders.map((f) => ({ id: f.id, name: f.name }))
 	]);
 
-	// ピン留めを左側に寄せて表示
 	let sortedTabs = $derived([
 		...tabs.filter((t) => t.isPinned),
 		...tabs.filter((t) => !t.isPinned)
@@ -56,6 +58,14 @@
 		setTimeout(checkScroll, 50);
 	}
 
+	// 詳細モーダルを開く（ツリーの「...」またはエディタのアクションボタンから）
+	function openItemActions(item: any) {
+		targetItem = item;
+		targetFolderId = item.parent_id;
+		newName = item.name;
+		showModal = 'actions';
+	}
+
 	function closeTab(id: string, event?: MouseEvent) {
 		event?.stopPropagation();
 		const index = tabs.findIndex((t) => t.id === id);
@@ -71,11 +81,11 @@
 	}
 
 	async function saveFile() {
-		if (!selectedFile) return;
+		if (!targetItem || targetItem.is_folder) return;
 		const { error } = await supabase
 			.from('files')
-			.update({ content: selectedFile.content })
-			.eq('id', selectedFile.id);
+			.update({ content: targetItem.content })
+			.eq('id', targetItem.id);
 		if (error) toast.error('Failed to save');
 		else {
 			toast.success('Saved successfully');
@@ -84,48 +94,66 @@
 	}
 
 	function downloadFile() {
-		if (!selectedFile) return;
-		const blob = new Blob([selectedFile.content], { type: 'text/plain' });
+		if (!targetItem || targetItem.is_folder) return;
+		const blob = new Blob([targetItem.content], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `${selectedFile.name}.${selectedFile.extension || 'txt'}`;
+		a.download = `${targetItem.name}.${targetItem.extension || 'txt'}`;
 		a.click();
 		URL.revokeObjectURL(url);
 		showModal = null;
 	}
 
-	async function renameFile() {
-		if (!selectedFile || !newName) return;
+	async function updateItem() {
+		if (!targetItem || !newName) return;
+
+		// バグ防止: 自分自身を親に設定できないようにする
+		if (targetItem.is_folder && targetFolderId === targetItem.id) {
+			return toast.error('Cannot move a folder into itself');
+		}
+
 		const { error } = await supabase
 			.from('files')
-			.update({ name: newName })
-			.eq('id', selectedFile.id);
-		if (error) toast.error('Rename failed');
+			.update({
+				name: newName,
+				parent_id: targetFolderId
+			})
+			.eq('id', targetItem.id);
+
+		if (error) toast.error('Update failed');
 		else {
-			selectedFile.name = newName;
 			await fetchFiles();
+			// タブ内のデータも更新
+			const tab = tabs.find((t) => t.id === targetItem.id);
+			if (tab) {
+				tab.name = newName;
+				tab.parent_id = targetFolderId;
+			}
 			closeModals();
-			toast.success('Renamed');
+			toast.success('Updated');
 		}
 	}
 
-	async function deleteFile() {
-		if (!selectedFile) return;
-		const idToDelete = selectedFile.id;
+	async function deleteItem() {
+		if (!targetItem) return;
+		const idToDelete = targetItem.id;
 		const { error } = await supabase.from('files').delete().eq('id', idToDelete);
 		if (error) toast.error('Delete failed');
 		else {
 			closeTab(idToDelete);
 			await fetchFiles();
 			closeModals();
-			toast.success('Deleted from app');
+			toast.success('Deleted');
 		}
 	}
 
 	function togglePin() {
-		if (!selectedFile) return;
-		selectedFile.isPinned = !selectedFile.isPinned;
+		if (!targetItem || targetItem.is_folder) return;
+		const tab = tabs.find((t) => t.id === targetItem.id);
+		if (tab) {
+			tab.isPinned = !tab.isPinned;
+		}
 		showModal = null;
 		setTimeout(checkScroll, 50);
 	}
@@ -167,6 +195,7 @@
 		showModal = null;
 		newName = '';
 		targetFolderId = null;
+		targetItem = null;
 	}
 
 	async function handleCreate() {
@@ -225,6 +254,7 @@
 			onSelect={handleSelect}
 			onOpenModal={(t) => (showModal = t)}
 			onOpenSettings={openSettings}
+			onOpenActions={openItemActions}
 			selectedId={activeTabId}
 			{activeView}
 		/>
@@ -280,8 +310,8 @@
 					>
 						{#each sortedTabs as tab (tab.id)}
 							<div
-								class="group relative flex h-9 w-40 shrink-0 items-center overflow-hidden rounded-full transition-all
-								{activeTabId === tab.id
+								class="group relative flex h-9 w-40 shrink-0 items-center overflow-hidden rounded-full transition-all {activeTabId ===
+								tab.id
 									? 'bg-(--accent-color)/10 ring-1 ring-(--accent-color)/30'
 									: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}"
 								title="{tab.name}.{tab.extension}"
@@ -388,7 +418,7 @@
 			{:else if selectedFile}
 				<div class="absolute top-8 right-8 z-20">
 					<button
-						onclick={() => (showModal = 'actions')}
+						onclick={() => openItemActions(selectedFile)}
 						class="flex h-10 w-10 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md transition-all hover:scale-110 hover:border-(--accent-color)/50 active:scale-95"
 						aria-label="File Actions"
 					>
@@ -452,7 +482,7 @@
 		>
 			{#if ['actions', 'rename', 'delete-confirm'].includes(showModal)}
 				<div
-					class="mb-6 flex items-center gap-2 rounded-2xl bg-(--bg-main)/50 p-3 ring-1 ring-(--border-color)/30"
+					class="ring-border-color/30 mb-6 flex items-center gap-2 rounded-2xl bg-(--bg-main)/50 p-3 ring-1"
 				>
 					<svg
 						class="h-4 w-4 opacity-40"
@@ -460,12 +490,14 @@
 						fill="none"
 						stroke="currentColor"
 						stroke-width="2"
-						><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" /><path
-							d="M13 2v7h7"
-						/></svg
+						><path
+							d="M{targetItem?.is_folder
+								? '3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z'
+								: '13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z'}"
+						/>{#if !targetItem?.is_folder}<path d="M13 2v7h7" />{/if}</svg
 					>
 					<span class="truncate text-xs font-bold opacity-60"
-						>{selectedFile?.name}.{selectedFile?.extension}</span
+						>{targetItem?.name}{targetItem?.is_folder ? '' : '.' + targetItem?.extension}</span
 					>
 				</div>
 			{/if}
@@ -499,8 +531,8 @@
 					/>
 				</div>
 				<div class="mt-10 flex gap-3">
-					<button type="button" onclick={closeModals} class="btn-ghost flex-1">Cancel</button
-					><button type="button" onclick={handleCreate} class="btn-primary flex-1">Create</button>
+					<button type="button" onclick={closeModals} class="btn-ghost flex-1">Cancel</button>
+					<button type="button" onclick={handleCreate} class="btn-primary flex-1">Create</button>
 				</div>
 			{:else if showModal === 'import'}
 				<h3 class="modal-title mb-8">Import File</h3>
@@ -527,46 +559,55 @@
 					<button type="button" onclick={closeModals} class="btn-ghost w-full">Cancel</button>
 				</div>
 			{:else if showModal === 'actions'}
-				<h3 class="modal-title mb-6">File Actions</h3>
+				<h3 class="modal-title mb-6">{targetItem?.is_folder ? 'Folder' : 'File'} Actions</h3>
 				<div class="grid grid-cols-1 gap-2">
+					{#if !targetItem?.is_folder}
+						<button
+							onclick={saveFile}
+							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
+						>
+							<svg
+								class="h-4 w-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><path
+									d="M17 21v-8H7v8"
+								/><path d="M7 3v5h8" /></svg
+							>Overwrite Save
+						</button>
+						<button
+							onclick={downloadFile}
+							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
+						>
+							<svg
+								class="h-4 w-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v4" /><path d="M7 10l5 5 5-5" /><path
+									d="M12 15V3"
+								/></svg
+							>Download
+						</button>
+						<button
+							onclick={togglePin}
+							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
+						>
+							<svg
+								class="h-4 w-4 {targetItem?.isPinned ? 'text-(--accent-color)' : ''}"
+								viewBox="0 0 24 24"
+								fill={targetItem?.isPinned ? 'currentColor' : 'none'}
+								stroke="currentColor"
+								stroke-width="2"><path d="M12 2L12 22M12 2L19 9M12 2L5 9" /></svg
+							>Pin Tab
+						</button>
+					{/if}
+
 					<button
-						type="button"
-						onclick={saveFile}
-						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-					>
-						<svg
-							class="h-4 w-4"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><path
-								d="M17 21v-8H7v8"
-							/><path d="M7 3v5h8" /></svg
-						>Overwrite Save</button
-					>
-					<button
-						type="button"
-						onclick={downloadFile}
-						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-					>
-						<svg
-							class="h-4 w-4"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v4" /><path d="M7 10l5 5 5-5" /><path
-								d="M12 15V3"
-							/></svg
-						>Save As (Download)</button
-					>
-					<button
-						type="button"
-						onclick={() => {
-							newName = selectedFile?.name || '';
-							showModal = 'rename';
-						}}
+						onclick={() => (showModal = 'rename')}
 						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
 					>
 						<svg
@@ -578,39 +619,13 @@
 							><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path
 								d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
 							/></svg
-						>Rename File</button
-					>
-					<button
-						type="button"
-						onclick={togglePin}
-						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-					>
-						<svg
-							class="h-4 w-4 {selectedFile?.isPinned ? 'text-(--accent-color)' : ''}"
-							viewBox="0 0 24 24"
-							fill={selectedFile?.isPinned ? 'currentColor' : 'none'}
-							stroke="currentColor"
-							stroke-width="2"><path d="M12 2L12 22M12 2L19 9M12 2L5 9" /></svg
-						>{selectedFile?.isPinned ? 'Unpin Tab' : 'Pin Tab'}</button
-					>
+						>Edit Info / Move
+					</button>
+
 					<hr class="my-2 border-(--border-color)/30" />
 					<button
-						type="button"
-						onclick={() => closeTab(selectedFile!.id)}
-						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold text-orange-500/80 transition-all hover:bg-orange-500/10 hover:text-orange-500 dark:bg-white/5"
-					>
-						<svg
-							class="h-4 w-4"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg
-						>Close Tab</button
-					>
-					<button
-						type="button"
 						onclick={() => (showModal = 'delete-confirm')}
-						class="mt-2 flex w-full items-center gap-3 rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white"
+						class="flex w-full items-center gap-3 rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white"
 					>
 						<svg
 							class="h-4 w-4"
@@ -621,39 +636,49 @@
 							><path
 								d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
 							/></svg
-						>Delete From App</button
-					>
+						>Delete {targetItem?.is_folder ? 'Folder' : 'File'}
+					</button>
 				</div>
-				<button type="button" onclick={closeModals} class="btn-ghost mt-6 w-full">Cancel</button>
+				<button onclick={closeModals} class="btn-ghost mt-6 w-full">Cancel</button>
 			{:else if showModal === 'rename'}
-				<h3 class="modal-title mb-8">Rename File</h3>
-				<input
-					bind:value={newName}
-					class="input-base mb-8 w-full"
-					placeholder="Enter new name..."
-				/>
-				<div class="flex gap-3">
-					<button type="button" onclick={() => (showModal = 'actions')} class="btn-ghost flex-1"
-						>Back</button
-					><button type="button" onclick={renameFile} class="btn-primary flex-1">Save</button>
+				<h3 class="modal-title mb-8">Edit Details</h3>
+				<div class="space-y-6">
+					<div>
+						<label class="text-label mb-2 block" for="edit-name">Name</label>
+						<input
+							id="edit-name"
+							bind:value={newName}
+							class="input-base w-full"
+							placeholder="Enter name..."
+						/>
+					</div>
+					<Select
+						label="Parent Folder (Move to)"
+						value={targetFolderId}
+						options={folderOptions}
+						onSelect={(id) => (targetFolderId = id)}
+					/>
+				</div>
+				<div class="mt-10 flex gap-3">
+					<button onclick={() => (showModal = 'actions')} class="btn-ghost flex-1">Back</button>
+					<button onclick={updateItem} class="btn-primary flex-1">Save Changes</button>
 				</div>
 			{:else if showModal === 'delete-confirm'}
-				<h3 class="modal-title mb-4 text-red-500">Are you sure?</h3>
+				<h3 class="modal-title mb-4 text-red-500">
+					Delete {targetItem?.is_folder ? 'Folder' : 'File'}?
+				</h3>
 				<p class="mb-8 text-sm leading-relaxed opacity-60">
-					This action cannot be undone. This will permanently delete <strong
-						>{selectedFile?.name}.{selectedFile?.extension}</strong
-					> from the database.
+					This action cannot be undone. {#if targetItem?.is_folder}All files inside this folder will
+						also be affected.{/if}
+					Permanently delete <strong>{targetItem?.name}</strong>?
 				</p>
 				<div class="flex flex-col gap-3">
 					<button
-						type="button"
-						onclick={deleteFile}
+						onclick={deleteItem}
 						class="btn-primary border-none bg-red-500 py-4 hover:bg-red-600"
 						>Yes, Delete permanently</button
 					>
-					<button type="button" onclick={() => (showModal = 'actions')} class="btn-ghost"
-						>No, Go back</button
-					>
+					<button onclick={() => (showModal = 'actions')} class="btn-ghost">No, Go back</button>
 				</div>
 			{/if}
 		</div>
