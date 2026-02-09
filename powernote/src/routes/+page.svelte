@@ -115,7 +115,10 @@
 	async function login() {
 		await supabase.auth.signInWithOAuth({
 			provider: 'google',
-			options: { redirectTo: window.location.origin }
+			options: {
+				// 末尾にスラッシュを忘れずに
+				redirectTo: 'https://tsuki0209.github.io/PowerNote/'
+			}
 		});
 	}
 
