@@ -16,7 +16,10 @@
 	let activeTabId = $state<string | null>(null);
 	let selectedFile = $derived(tabs.find((t) => t.id === activeTabId) || null);
 
-	// 操作対象のアイテム（ツリーから「...」で選んだもの、またはアクティブなファイル）
+	// ドラッグ中のタブIDを保持
+	let draggingTabId = $state<string | null>(null);
+
+	// 操作対象のアイテム
 	let targetItem = $state<any>(null);
 
 	let activeView = $state<'editor' | 'settings'>('editor');
@@ -37,6 +40,7 @@
 		...folders.map((f) => ({ id: f.id, name: f.name }))
 	]);
 
+	// ピン留めタブを先頭にする表示用配列
 	let sortedTabs = $derived([
 		...tabs.filter((t) => t.isPinned),
 		...tabs.filter((t) => !t.isPinned)
@@ -58,7 +62,6 @@
 		setTimeout(checkScroll, 50);
 	}
 
-	// 詳細モーダルを開く（ツリーの「...」またはエディタのアクションボタンから）
 	function openItemActions(item: any) {
 		targetItem = item;
 		targetFolderId = item.parent_id;
@@ -78,6 +81,32 @@
 			}
 		}
 		setTimeout(checkScroll, 50);
+	}
+
+	// --- ドラッグ&ドロップ ロジック ---
+	function handleDragStart(id: string) {
+		draggingTabId = id;
+	}
+
+	function handleDragOver(e: DragEvent, targetId: string) {
+		e.preventDefault();
+		if (!draggingTabId || draggingTabId === targetId) return;
+
+		const draggingTab = tabs.find((t) => t.id === draggingTabId);
+		const targetTab = tabs.find((t) => t.id === targetId);
+		if (draggingTab?.isPinned !== targetTab?.isPinned) return;
+
+		const fromIndex = tabs.findIndex((t) => t.id === draggingTabId);
+		const toIndex = tabs.findIndex((t) => t.id === targetId);
+
+		const newTabs = [...tabs];
+		const [movedItem] = newTabs.splice(fromIndex, 1);
+		newTabs.splice(toIndex, 0, movedItem);
+		tabs = newTabs;
+	}
+
+	function handleDragEnd() {
+		draggingTabId = null;
 	}
 
 	async function saveFile() {
@@ -107,24 +136,17 @@
 
 	async function updateItem() {
 		if (!targetItem || !newName) return;
-
-		// バグ防止: 自分自身を親に設定できないようにする
 		if (targetItem.is_folder && targetFolderId === targetItem.id) {
 			return toast.error('Cannot move a folder into itself');
 		}
-
 		const { error } = await supabase
 			.from('files')
-			.update({
-				name: newName,
-				parent_id: targetFolderId
-			})
+			.update({ name: newName, parent_id: targetFolderId })
 			.eq('id', targetItem.id);
 
 		if (error) toast.error('Update failed');
 		else {
 			await fetchFiles();
-			// タブ内のデータも更新
 			const tab = tabs.find((t) => t.id === targetItem.id);
 			if (tab) {
 				tab.name = newName;
@@ -288,8 +310,8 @@
 						>
 							<button
 								onclick={() => scrollTabs('left')}
+								aria-label="Scroll tabs left"
 								class="ml-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm transition-transform hover:scale-110"
-								aria-label="Scroll left"
 							>
 								<svg
 									class="h-4 w-4"
@@ -306,14 +328,22 @@
 						bind:this={scrollContainer}
 						onscroll={checkScroll}
 						onwheel={handleWheel}
+						role="list"
+						aria-label="Open tabs"
 						class="scrollbar-none flex h-full items-center gap-2 overflow-x-auto scroll-smooth px-4"
 					>
 						{#each sortedTabs as tab (tab.id)}
 							<div
-								class="group relative flex h-9 w-40 shrink-0 items-center overflow-hidden rounded-full transition-all {activeTabId ===
-								tab.id
+								draggable="true"
+								role="listitem"
+								ondragstart={() => handleDragStart(tab.id)}
+								ondragover={(e) => handleDragOver(e, tab.id)}
+								ondragend={handleDragEnd}
+								class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full transition-all active:cursor-grabbing
+                                {activeTabId === tab.id
 									? 'bg-(--accent-color)/10 ring-1 ring-(--accent-color)/30'
-									: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}"
+									: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}
+                                {draggingTabId === tab.id ? 'opacity-40' : 'opacity-100'}"
 								title="{tab.name}.{tab.extension}"
 							>
 								<button
@@ -340,14 +370,16 @@
 									<span
 										class="pointer-events-none truncate {activeTabId === tab.id
 											? 'text-(--accent-color)'
-											: 'text-(--text-muted)'}">{tab.name}.{tab.extension}</span
+											: 'text-(--text-muted)'}"
 									>
+										{tab.name}.{tab.extension}
+									</span>
 								</button>
 								{#if !tab.isPinned}
 									<button
 										onclick={(e) => closeTab(tab.id, e)}
+										aria-label="Close {tab.name} tab"
 										class="absolute right-2 rounded-full bg-inherit p-1 text-(--text-muted) opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
-										aria-label="Close tab"
 									>
 										<svg
 											class="h-3 w-3"
@@ -369,8 +401,8 @@
 						>
 							<button
 								onclick={() => scrollTabs('right')}
+								aria-label="Scroll tabs right"
 								class="mr-1 flex h-7 w-7 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar) shadow-sm transition-transform hover:scale-110"
-								aria-label="Scroll right"
 							>
 								<svg
 									class="h-4 w-4"
@@ -419,8 +451,8 @@
 				<div class="absolute top-8 right-8 z-20">
 					<button
 						onclick={() => openItemActions(selectedFile)}
+						aria-label="Open actions menu"
 						class="flex h-10 w-10 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md transition-all hover:scale-110 hover:border-(--accent-color)/50 active:scale-95"
-						aria-label="File Actions"
 					>
 						<svg
 							class="h-5 w-5 opacity-60"
@@ -476,13 +508,12 @@
 			onclick={closeModals}
 			aria-label="Close modal"
 		></button>
-
 		<div
 			class="relative w-full max-w-md rounded-4xl border border-(--border-color) bg-(--bg-modal) p-10 shadow-2xl"
 		>
 			{#if ['actions', 'rename', 'delete-confirm'].includes(showModal)}
 				<div
-					class="ring-border-color/30 mb-6 flex items-center gap-2 rounded-2xl bg-(--bg-main)/50 p-3 ring-1"
+					class="mb-6 flex items-center gap-2 rounded-2xl bg-(--bg-main)/50 p-3 ring-1 ring-(--border-color)/30"
 				>
 					<svg
 						class="h-4 w-4 opacity-40"
@@ -544,7 +575,7 @@
 							type="file"
 							onchange={handleImport}
 							class="w-full text-xs opacity-50 file:hidden"
-							aria-label="Upload file"
+							aria-label="Select file to import"
 						/>
 						<span class="mt-2 text-[10px] font-bold uppercase opacity-30">Click to upload</span>
 					</div>
@@ -563,10 +594,10 @@
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
 						<button
+							type="button"
 							onclick={saveFile}
 							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-						>
-							<svg
+							><svg
 								class="h-4 w-4"
 								viewBox="0 0 24 24"
 								fill="none"
@@ -575,13 +606,13 @@
 								><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><path
 									d="M17 21v-8H7v8"
 								/><path d="M7 3v5h8" /></svg
-							>Overwrite Save
-						</button>
+							>Overwrite Save</button
+						>
 						<button
+							type="button"
 							onclick={downloadFile}
 							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-						>
-							<svg
+							><svg
 								class="h-4 w-4"
 								viewBox="0 0 24 24"
 								fill="none"
@@ -590,27 +621,26 @@
 								><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v4" /><path d="M7 10l5 5 5-5" /><path
 									d="M12 15V3"
 								/></svg
-							>Download
-						</button>
+							>Download</button
+						>
 						<button
+							type="button"
 							onclick={togglePin}
 							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-						>
-							<svg
+							><svg
 								class="h-4 w-4 {targetItem?.isPinned ? 'text-(--accent-color)' : ''}"
 								viewBox="0 0 24 24"
 								fill={targetItem?.isPinned ? 'currentColor' : 'none'}
 								stroke="currentColor"
 								stroke-width="2"><path d="M12 2L12 22M12 2L19 9M12 2L5 9" /></svg
-							>Pin Tab
-						</button>
+							>Pin Tab</button
+						>
 					{/if}
-
 					<button
+						type="button"
 						onclick={() => (showModal = 'rename')}
 						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-					>
-						<svg
+						><svg
 							class="h-4 w-4"
 							viewBox="0 0 24 24"
 							fill="none"
@@ -619,15 +649,14 @@
 							><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path
 								d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
 							/></svg
-						>Edit Info / Move
-					</button>
-
+						>Edit Info / Move</button
+					>
 					<hr class="my-2 border-(--border-color)/30" />
 					<button
+						type="button"
 						onclick={() => (showModal = 'delete-confirm')}
 						class="flex w-full items-center gap-3 rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white"
-					>
-						<svg
+						><svg
 							class="h-4 w-4"
 							viewBox="0 0 24 24"
 							fill="none"
@@ -636,10 +665,10 @@
 							><path
 								d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
 							/></svg
-						>Delete {targetItem?.is_folder ? 'Folder' : 'File'}
-					</button>
+						>Delete {targetItem?.is_folder ? 'Folder' : 'File'}</button
+					>
 				</div>
-				<button onclick={closeModals} class="btn-ghost mt-6 w-full">Cancel</button>
+				<button type="button" onclick={closeModals} class="btn-ghost mt-6 w-full">Cancel</button>
 			{:else if showModal === 'rename'}
 				<h3 class="modal-title mb-8">Edit Details</h3>
 				<div class="space-y-6">
@@ -660,8 +689,11 @@
 					/>
 				</div>
 				<div class="mt-10 flex gap-3">
-					<button onclick={() => (showModal = 'actions')} class="btn-ghost flex-1">Back</button>
-					<button onclick={updateItem} class="btn-primary flex-1">Save Changes</button>
+					<button type="button" onclick={() => (showModal = 'actions')} class="btn-ghost flex-1"
+						>Back</button
+					>
+					<button type="button" onclick={updateItem} class="btn-primary flex-1">Save Changes</button
+					>
 				</div>
 			{:else if showModal === 'delete-confirm'}
 				<h3 class="modal-title mb-4 text-red-500">
@@ -669,16 +701,18 @@
 				</h3>
 				<p class="mb-8 text-sm leading-relaxed opacity-60">
 					This action cannot be undone. {#if targetItem?.is_folder}All files inside this folder will
-						also be affected.{/if}
-					Permanently delete <strong>{targetItem?.name}</strong>?
+						also be affected.{/if} Permanently delete <strong>{targetItem?.name}</strong>?
 				</p>
 				<div class="flex flex-col gap-3">
 					<button
+						type="button"
 						onclick={deleteItem}
 						class="btn-primary border-none bg-red-500 py-4 hover:bg-red-600"
 						>Yes, Delete permanently</button
 					>
-					<button onclick={() => (showModal = 'actions')} class="btn-ghost">No, Go back</button>
+					<button type="button" onclick={() => (showModal = 'actions')} class="btn-ghost"
+						>No, Go back</button
+					>
 				</div>
 			{/if}
 		</div>
@@ -692,5 +726,11 @@
 	.scrollbar-none {
 		-ms-overflow-style: none;
 		scrollbar-width: none;
+	}
+
+	.group {
+		transition:
+			transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+			opacity 0.2s;
 	}
 </style>
