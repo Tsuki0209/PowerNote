@@ -11,10 +11,20 @@
 		null
 	);
 
-	// タブ管理
-	let tabs = $state<any[]>([]);
+	// タブ管理：DB上の is_open が true のものを tabs として扱う
+	let tabs = $derived(
+		files
+			.filter((f) => f.is_open)
+			.sort((a, b) => {
+				// 1. ピン留めを優先
+				if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+				// 2. 次に sort_order 順
+				return a.sort_order - b.sort_order;
+			})
+	);
+
 	let activeTabId = $state<string | null>(null);
-	let selectedFile = $derived(tabs.find((t) => t.id === activeTabId) || null);
+	let selectedFile = $derived(files.find((f) => f.id === activeTabId) || null);
 
 	// ドラッグ中のタブIDを保持
 	let draggingTabId = $state<string | null>(null);
@@ -40,12 +50,6 @@
 		...folders.map((f) => ({ id: f.id, name: f.name }))
 	]);
 
-	// ピン留めタブを先頭にし、かつsort_order順にする表示用配列
-	let sortedTabs = $derived([
-		...tabs.filter((t) => t.is_pinned).sort((a, b) => a.sort_order - b.sort_order),
-		...tabs.filter((t) => !t.is_pinned).sort((a, b) => a.sort_order - b.sort_order)
-	]);
-
 	async function fetchFiles() {
 		const { data } = await supabase
 			.from('files')
@@ -54,14 +58,21 @@
 		files = data || [];
 	}
 
-	function handleSelect(file: any) {
+	async function handleSelect(file: any) {
 		if (file.is_folder) return;
 		activeView = 'editor';
-		const existingTab = tabs.find((t) => t.id === file.id);
-		if (!existingTab) {
-			tabs = [...tabs, { ...file }];
-		}
 		activeTabId = file.id;
+
+		// タブが開いていない場合はDBを更新
+		if (!file.is_open) {
+			const { error } = await supabase.from('files').update({ is_open: true }).eq('id', file.id);
+
+			if (!error) {
+				// ローカル状態を即時更新
+				const f = files.find((item) => item.id === file.id);
+				if (f) f.is_open = true;
+			}
+		}
 		setTimeout(checkScroll, 50);
 	}
 
@@ -72,15 +83,26 @@
 		showModal = 'actions';
 	}
 
-	function closeTab(id: string, event?: MouseEvent) {
+	async function closeTab(id: string, event?: MouseEvent) {
 		event?.stopPropagation();
-		const index = tabs.findIndex((t) => t.id === id);
-		tabs = tabs.filter((t) => t.id !== id);
-		if (activeTabId === id) {
-			if (tabs.length > 0) {
-				activeTabId = tabs[Math.max(0, index - 1)].id;
-			} else {
-				activeTabId = null;
+
+		// DBのis_openをfalseに更新
+		const { error } = await supabase.from('files').update({ is_open: false }).eq('id', id);
+
+		if (!error) {
+			const closedTabIndex = tabs.findIndex((t) => t.id === id);
+
+			// ローカル状態を更新
+			const f = files.find((item) => item.id === id);
+			if (f) f.is_open = false;
+
+			if (activeTabId === id) {
+				if (tabs.length > 0) {
+					// 閉じたタブの前のタブを選択
+					activeTabId = tabs[Math.max(0, closedTabIndex - 1)].id;
+				} else {
+					activeTabId = null;
+				}
 			}
 		}
 		setTimeout(checkScroll, 50);
@@ -95,35 +117,32 @@
 		e.preventDefault();
 		if (!draggingTabId || draggingTabId === targetId) return;
 
-		const draggingTab = tabs.find((t) => t.id === draggingTabId);
-		const targetTab = tabs.find((t) => t.id === targetId);
+		const draggingTab = files.find((f) => f.id === draggingTabId);
+		const targetTab = files.find((f) => f.id === targetId);
 		if (draggingTab?.is_pinned !== targetTab?.is_pinned) return;
 
-		const fromIndex = tabs.findIndex((t) => t.id === draggingTabId);
-		const toIndex = tabs.findIndex((t) => t.id === targetId);
+		const fromIndex = files.findIndex((f) => f.id === draggingTabId);
+		const toIndex = files.findIndex((f) => f.id === targetId);
 
-		const newTabs = [...tabs];
-		const [movedItem] = newTabs.splice(fromIndex, 1);
-		newTabs.splice(toIndex, 0, movedItem);
+		const newFiles = [...files];
+		const [movedItem] = newFiles.splice(fromIndex, 1);
+		newFiles.splice(toIndex, 0, movedItem);
 
-		// 並び順(sort_order)をローカルで更新
-		tabs = newTabs.map((t, i) => ({ ...t, sort_order: i }));
+		// sort_orderをローカルで再計算
+		files = newFiles.map((f, i) => ({ ...f, sort_order: i }));
 	}
 
 	async function handleDragEnd() {
 		draggingTabId = null;
-		// upsertではなく個別にupdateを行う（エラー回避のため）
-		const promises = tabs.map((t) =>
-			supabase.from('files').update({ sort_order: t.sort_order }).eq('id', t.id)
+		// 並び順をDBに同期
+		const promises = files.map((f) =>
+			supabase.from('files').update({ sort_order: f.sort_order }).eq('id', f.id)
 		);
 
 		const results = await Promise.all(promises);
-		const hasError = results.some((r) => r.error);
-
-		if (hasError) {
+		if (results.some((r) => r.error)) {
 			toast.error('Failed to sync order');
 		} else {
-			// サイドバーの並びも更新するために再取得
 			await fetchFiles();
 		}
 	}
@@ -166,11 +185,6 @@
 		if (error) toast.error('Update failed');
 		else {
 			await fetchFiles();
-			const tab = tabs.find((t) => t.id === targetItem.id);
-			if (tab) {
-				tab.name = newName;
-				tab.parent_id = targetFolderId;
-			}
 			closeModals();
 			toast.success('Updated');
 		}
@@ -182,7 +196,7 @@
 		const { error } = await supabase.from('files').delete().eq('id', idToDelete);
 		if (error) toast.error('Delete failed');
 		else {
-			closeTab(idToDelete);
+			if (activeTabId === idToDelete) activeTabId = null;
 			await fetchFiles();
 			closeModals();
 			toast.success('Deleted');
@@ -201,12 +215,7 @@
 		if (error) {
 			toast.error('Failed to update pin');
 		} else {
-			const tab = tabs.find((t) => t.id === targetItem.id);
-			if (tab) tab.is_pinned = newPinned;
-			// サイドバー側のアイコンも即時更新するために必要
-			const file = files.find((f) => f.id === targetItem.id);
-			if (file) file.is_pinned = newPinned;
-
+			await fetchFiles();
 			toast.success(newPinned ? 'Pinned' : 'Unpinned');
 		}
 		showModal = null;
@@ -263,7 +272,8 @@
 				is_folder: isFolder,
 				parent_id: targetFolderId,
 				content: '',
-				sort_order: files.length
+				sort_order: files.length,
+				is_open: !isFolder // 新規ファイル作成時に自動でタブを開く
 			}
 		]);
 		if (error) toast.error('Error creating item');
@@ -289,7 +299,8 @@
 					content,
 					is_folder: false,
 					parent_id: targetFolderId,
-					sort_order: files.length
+					sort_order: files.length,
+					is_open: true
 				}
 			]);
 			closeModals();
@@ -373,7 +384,7 @@
 						aria-label="Open tabs"
 						class="scrollbar-none flex h-full items-center gap-2 overflow-x-auto scroll-smooth px-4"
 					>
-						{#each sortedTabs as tab (tab.id)}
+						{#each tabs as tab (tab.id)}
 							<div
 								draggable="true"
 								role="listitem"
@@ -517,21 +528,6 @@
 				></textarea>
 			{:else}
 				<div class="flex h-full flex-col items-center justify-center">
-					<div class="relative mb-6">
-						<div
-							class="absolute inset-0 scale-150 rounded-full bg-(--accent-color) opacity-10 blur-3xl"
-						></div>
-						<svg
-							class="relative h-16 w-16 opacity-10"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1"
-							><path
-								d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-							/></svg
-						>
-					</div>
 					<span class="text-[11px] font-black tracking-[0.5em] uppercase opacity-20"
 						>Select a file to begin</span
 					>
@@ -552,28 +548,6 @@
 		<div
 			class="relative w-full max-w-md rounded-4xl border border-(--border-color) bg-(--bg-modal) p-10 shadow-2xl"
 		>
-			{#if ['actions', 'rename', 'delete-confirm'].includes(showModal)}
-				<div
-					class="mb-6 flex items-center gap-2 rounded-2xl bg-(--bg-main)/50 p-3 ring-1 ring-(--border-color)/30"
-				>
-					<svg
-						class="h-4 w-4 opacity-40"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						><path
-							d="M{targetItem?.is_folder
-								? '3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z'
-								: '13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z'}"
-						/>{#if !targetItem?.is_folder}<path d="M13 2v7h7" />{/if}</svg
-					>
-					<span class="truncate text-xs font-bold opacity-60"
-						>{targetItem?.name}{targetItem?.is_folder ? '' : '.' + targetItem?.extension}</span
-					>
-				</div>
-			{/if}
-
 			{#if showModal === 'create'}
 				<h3 class="modal-title mb-8">Create New Item</h3>
 				<div class="space-y-6">
@@ -606,30 +580,6 @@
 					<button type="button" onclick={closeModals} class="btn-ghost flex-1">Cancel</button>
 					<button type="button" onclick={handleCreate} class="btn-primary flex-1">Create</button>
 				</div>
-			{:else if showModal === 'import'}
-				<h3 class="modal-title mb-8">Import File</h3>
-				<div class="space-y-6">
-					<div
-						class="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-(--border-color) p-8 transition-colors hover:border-(--accent-color)/50"
-					>
-						<input
-							type="file"
-							onchange={handleImport}
-							class="w-full text-xs opacity-50 file:hidden"
-							aria-label="Select file to import"
-						/>
-						<span class="mt-2 text-[10px] font-bold uppercase opacity-30">Click to upload</span>
-					</div>
-					<Select
-						label="Target Location"
-						value={targetFolderId}
-						options={folderOptions}
-						onSelect={(id) => (targetFolderId = id)}
-					/>
-				</div>
-				<div class="mt-10">
-					<button type="button" onclick={closeModals} class="btn-ghost w-full">Cancel</button>
-				</div>
 			{:else if showModal === 'actions'}
 				<h3 class="modal-title mb-6">{targetItem?.is_folder ? 'Folder' : 'File'} Actions</h3>
 				<div class="grid grid-cols-1 gap-2">
@@ -637,93 +587,37 @@
 						<button
 							type="button"
 							onclick={saveFile}
-							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-							><svg
-								class="h-4 w-4"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><path
-									d="M17 21v-8H7v8"
-								/><path d="M7 3v5h8" /></svg
+							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
 							>Overwrite Save</button
 						>
 						<button
 							type="button"
-							onclick={downloadFile}
-							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-							><svg
-								class="h-4 w-4"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v4" /><path d="M7 10l5 5 5-5" /><path
-									d="M12 15V3"
-								/></svg
-							>Download</button
-						>
-						<button
-							type="button"
 							onclick={togglePin}
-							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-							><svg
-								class="h-4 w-4 {targetItem?.is_pinned ? 'text-(--accent-color)' : ''}"
-								viewBox="0 0 24 24"
-								fill={targetItem?.is_pinned ? 'currentColor' : 'none'}
-								stroke="currentColor"
-								stroke-width="2"><path d="M12 2L12 22M12 2L19 9M12 2L5 9" /></svg
-							>{targetItem?.is_pinned ? 'Unpin' : 'Pin'} Tab</button
+							class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
 						>
+							{targetItem?.is_pinned ? 'Unpin' : 'Pin'} Tab
+						</button>
 					{/if}
 					<button
 						type="button"
 						onclick={() => (showModal = 'rename')}
-						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 hover:text-(--accent-color) dark:bg-white/5"
-						><svg
-							class="h-4 w-4"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path
-								d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
-							/></svg
+						class="flex w-full items-center gap-3 rounded-2xl bg-black/5 p-4 text-sm font-bold transition-all hover:bg-(--accent-color)/10 dark:bg-white/5"
 						>Edit Info / Move</button
 					>
-					<hr class="my-2 border-(--border-color)/30" />
 					<button
 						type="button"
 						onclick={() => (showModal = 'delete-confirm')}
 						class="flex w-full items-center gap-3 rounded-2xl bg-red-500/10 p-4 text-sm font-bold text-red-500 transition-all hover:bg-red-500 hover:text-white"
-						><svg
-							class="h-4 w-4"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							><path
-								d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
-							/></svg
-						>Delete {targetItem?.is_folder ? 'Folder' : 'File'}</button
+						>Delete</button
 					>
 				</div>
 				<button type="button" onclick={closeModals} class="btn-ghost mt-6 w-full">Cancel</button>
 			{:else if showModal === 'rename'}
 				<h3 class="modal-title mb-8">Edit Details</h3>
 				<div class="space-y-6">
-					<div>
-						<label class="text-label mb-2 block" for="edit-name">Name</label>
-						<input
-							id="edit-name"
-							bind:value={newName}
-							class="input-base w-full"
-							placeholder="Enter name..."
-						/>
-					</div>
+					<input bind:value={newName} class="input-base w-full" placeholder="Enter name..." />
 					<Select
-						label="Parent Folder (Move to)"
+						label="Move to"
 						value={targetFolderId}
 						options={folderOptions}
 						onSelect={(id) => (targetFolderId = id)}
@@ -733,26 +627,21 @@
 					<button type="button" onclick={() => (showModal = 'actions')} class="btn-ghost flex-1"
 						>Back</button
 					>
-					<button type="button" onclick={updateItem} class="btn-primary flex-1">Save Changes</button
-					>
+					<button type="button" onclick={updateItem} class="btn-primary flex-1">Save</button>
 				</div>
 			{:else if showModal === 'delete-confirm'}
-				<h3 class="modal-title mb-4 text-red-500">
-					Delete {targetItem?.is_folder ? 'Folder' : 'File'}?
-				</h3>
-				<p class="mb-8 text-sm leading-relaxed opacity-60">
-					This action cannot be undone. {#if targetItem?.is_folder}All files inside this folder will
-						also be affected.{/if} Permanently delete <strong>{targetItem?.name}</strong>?
+				<h3 class="modal-title mb-4 text-red-500">Delete Item?</h3>
+				<p class="mb-8 text-sm opacity-60">
+					Are you sure you want to delete <strong>{targetItem?.name}</strong>?
 				</p>
 				<div class="flex flex-col gap-3">
 					<button
 						type="button"
 						onclick={deleteItem}
-						class="btn-primary border-none bg-red-500 py-4 hover:bg-red-600"
-						>Yes, Delete permanently</button
+						class="btn-primary bg-red-500 py-4 hover:bg-red-600">Delete Permanently</button
 					>
 					<button type="button" onclick={() => (showModal = 'actions')} class="btn-ghost"
-						>No, Go back</button
+						>Cancel</button
 					>
 				</div>
 			{/if}
@@ -767,11 +656,5 @@
 	.scrollbar-none {
 		-ms-overflow-style: none;
 		scrollbar-width: none;
-	}
-
-	.group {
-		transition:
-			transform 0.2s cubic-bezier(0.2, 0, 0, 1),
-			opacity 0.2s;
 	}
 </style>
