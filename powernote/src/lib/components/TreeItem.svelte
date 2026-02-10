@@ -44,7 +44,10 @@
 			? 'bg-(--accent-color)/10 text-(--accent-color)'
 			: 'text-(--text-primary) hover:bg-black/5 dark:hover:bg-white/5'}"
 	>
-		<span class="mr-3 flex h-4 w-4 items-center justify-center opacity-40">
+		<span
+			class="mr-3 flex h-4 w-4 items-center justify-center opacity-40"
+			style={item.tags?.length > 0 ? 'opacity: 1;' : ''}
+		>
 			{#if item.is_folder}
 				<svg
 					class="h-3.5 w-3.5 transition-transform {item.is_expanded ? 'rotate-90' : ''}"
@@ -54,11 +57,16 @@
 					stroke-width="3"><path d="M9 18l6-6-6-6" /></svg
 				>
 			{:else}
-				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-					><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" /><path
-						d="M13 2v7h7"
-					/></svg
+				<svg
+					class="h-4 w-4"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke={item.tags?.length > 0 ? item.tags[0].color : 'currentColor'}
+					stroke-width="2"
 				>
+					<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+					<path d="M13 2v7h7" />
+				</svg>
 			{/if}
 		</span>
 		<span class="truncate tracking-tight">

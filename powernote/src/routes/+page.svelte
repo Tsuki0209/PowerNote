@@ -19,6 +19,68 @@
 		size: number;
 	} | null>(null);
 
+	let newTagName = $state('');
+	let showTagEditModal = $state(false);
+	let editingTag = $state<{ id: string; name: string; color: string } | null>(null);
+	let draggedTagIndex = $state<number | null>(null);
+
+	async function addTag(e: KeyboardEvent) {
+		if (e.key === 'Enter' && newTagName.trim() && targetItem) {
+			e.preventDefault();
+			const newTag = { id: crypto.randomUUID(), name: newTagName.trim(), color: '#4f46e5' };
+			const currentTags = targetItem.tags || [];
+			const { error } = await supabase
+				.from('files')
+				.update({ tags: [...currentTags, newTag] })
+				.eq('id', targetItem.id);
+			if (!error) {
+				targetItem.tags = [...currentTags, newTag];
+				newTagName = '';
+				await fetchFiles();
+			}
+		}
+	}
+	async function removeTag(tagId: string) {
+		if (!targetItem) return;
+		const updatedTags = (targetItem.tags || []).filter((t: any) => t.id !== tagId);
+		const { error } = await supabase
+			.from('files')
+			.update({ tags: updatedTags })
+			.eq('id', targetItem.id);
+		if (!error) {
+			targetItem.tags = updatedTags;
+			await fetchFiles();
+		}
+	}
+	async function updateTagDetail() {
+		if (!targetItem || !editingTag) return;
+		const updatedTags = targetItem.tags.map((t: any) => (t.id === editingTag!.id ? editingTag : t));
+		const { error } = await supabase
+			.from('files')
+			.update({ tags: updatedTags })
+			.eq('id', targetItem.id);
+		if (!error) {
+			targetItem.tags = updatedTags;
+			showTagEditModal = false;
+			await fetchFiles();
+		}
+	}
+	async function handleTagDrop(targetIndex: number) {
+		if (draggedTagIndex === null || !targetItem) return;
+		const updatedTags = [...(targetItem.tags || [])];
+		const [draggedTag] = updatedTags.splice(draggedTagIndex, 1);
+		updatedTags.splice(targetIndex, 0, draggedTag);
+		const { error } = await supabase
+			.from('files')
+			.update({ tags: updatedTags })
+			.eq('id', targetItem.id);
+		if (!error) {
+			targetItem.tags = updatedTags;
+			draggedTagIndex = null;
+			await fetchFiles();
+		}
+	}
+
 	// --- 制限設定 ---
 	const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 	const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB (Supabase Free Tier)
@@ -841,6 +903,41 @@
 						{/if}
 					{/if}
 				</div>
+				<div class="space-y-2">
+					<span class="text-label">Tags</span>
+					<div class="mb-3 flex flex-wrap gap-2">
+						{#each targetItem.tags || [] as tag, i}
+							<div
+								role="listitem"
+								draggable="true"
+								ondragstart={() => (draggedTagIndex = i)}
+								ondragover={(e) => e.preventDefault()}
+								ondrop={() => handleTagDrop(i)}
+								class="flex cursor-move items-center gap-2 rounded-md border px-2 py-1 text-[11px] font-bold transition-all active:scale-95"
+								style="background-color: {tag.color}15; border-color: {tag.color}40; color: {tag.color};"
+							>
+								{tag.name}
+								<button
+									onclick={(e) => {
+										e.stopPropagation();
+										editingTag = { ...tag };
+										showTagEditModal = true;
+									}}
+									class="opacity-60 hover:opacity-100">●</button
+								>
+								<button onclick={() => removeTag(tag.id)} class="ml-1 opacity-40 hover:opacity-100"
+									>×</button
+								>
+							</div>
+						{/each}
+					</div>
+					<input
+						bind:value={newTagName}
+						onkeydown={addTag}
+						class="input-base mb-6 w-full"
+						placeholder="Add tag and press Enter..."
+					/>
+				</div>
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
 						<button
@@ -903,6 +1000,27 @@
 					>
 				</div>
 			{/if}
+		</div>
+	</div>
+{/if}
+{#if showTagEditModal && editingTag}
+	<div
+		class="fixed inset-0 z-100 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+	>
+		<div
+			class="w-full max-w-xs rounded-3xl border border-(--border-color) bg-(--bg-modal) p-6 shadow-2xl"
+		>
+			<h4 class="mb-6 text-sm font-black uppercase">Edit Tag</h4>
+			<input bind:value={editingTag.name} class="input-base mb-4 w-full" />
+			<input
+				type="color"
+				bind:value={editingTag.color}
+				class="h-10 w-full rounded-md border-none bg-transparent"
+			/>
+			<button onclick={updateTagDetail} class="btn-primary mt-6 w-full">Save Tag</button>
+			<button onclick={() => (showTagEditModal = false)} class="btn-ghost mt-2 w-full"
+				>Cancel</button
+			>
 		</div>
 	</div>
 {/if}
