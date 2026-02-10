@@ -5,6 +5,7 @@
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import Select from '$lib/components/Select.svelte';
 	import TabManager from '$lib/components/TabManager.svelte';
+	import { slide } from 'svelte/transition';
 
 	let user = $state<any>(null);
 	let files = $state<any[]>([]);
@@ -596,15 +597,33 @@
 		class="flex h-screen w-full gap-2 overflow-hidden bg-(--bg-main) p-2 font-sans md:gap-4 md:p-4"
 	>
 		{#if isSidebarOpen}
-			<Sidebar
-				{files}
-				onSelect={handleSelect}
-				onOpenModal={(t) => (showModal = t)}
-				onOpenSettings={() => (activeView = 'settings')}
-				onOpenActions={openItemActions}
-				selectedId={activeTabId}
-				{activeView}
-			/>
+			<div
+				transition:slide={{ axis: 'x', duration: 300 }}
+				class="absolute inset-y-2 left-2 z-50 h-[calc(100%-1rem)] md:relative md:inset-0 md:h-full"
+			>
+				<Sidebar
+					{files}
+					onSelect={(file) => {
+						handleSelect(file);
+						// モバイル時はファイル選択後にサイドバーを自動で閉じる
+						if (window.innerWidth < 768) isSidebarOpen = false;
+					}}
+					onOpenModal={(t) => (showModal = t)}
+					onOpenSettings={() => {
+						activeView = 'settings';
+						if (window.innerWidth < 768) isSidebarOpen = false;
+					}}
+					onOpenActions={openItemActions}
+					selectedId={activeTabId}
+					{activeView}
+				/>
+			</div>
+
+			<button
+				onclick={() => (isSidebarOpen = false)}
+				class="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:hidden"
+				aria-label="Close sidebar"
+			></button>
 		{/if}
 
 		<main
