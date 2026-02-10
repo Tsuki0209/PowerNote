@@ -31,33 +31,35 @@
 	function startResizing(e: MouseEvent) {
 		if (!containerRef || node.type !== 'split') return;
 
+		// ドラッグ開始時にテキスト選択を無効化
+		document.body.style.userSelect = 'none';
+
 		const handleMouseMove = (moveEvent: MouseEvent) => {
 			if (!containerRef) return;
 			const rect = containerRef.getBoundingClientRect();
 			let newRatio: number;
 
 			if (node.direction === 'horizontal') {
-				// 左右分割の場合
 				newRatio = ((moveEvent.clientX - rect.left) / rect.width) * 100;
 			} else {
-				// 上下分割の場合
 				newRatio = ((moveEvent.clientY - rect.top) / rect.height) * 100;
 			}
 
-			// 5%〜95%の範囲に制限
 			node.ratio = Math.max(5, Math.min(95, newRatio));
 		};
 
 		const handleMouseUp = () => {
 			window.removeEventListener('mousemove', handleMouseMove);
 			window.removeEventListener('mouseup', handleMouseUp);
+
+			// ドラッグ終了時にスタイルを元に戻す
+			document.body.style.userSelect = '';
 			document.body.style.cursor = 'default';
 		};
 
 		window.addEventListener('mousemove', handleMouseMove);
 		window.addEventListener('mouseup', handleMouseUp);
 
-		// ドラッグ中のカーソルを固定
 		document.body.style.cursor = node.direction === 'vertical' ? 'ns-resize' : 'ew-resize';
 	}
 </script>
@@ -81,7 +83,7 @@
 			</div>
 
 			<div
-				role="separator"
+				role="none"
 				onmousedown={startResizing}
 				class="{node.direction === 'vertical'
 					? 'h-1 w-full cursor-ns-resize'
