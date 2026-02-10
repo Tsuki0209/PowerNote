@@ -82,6 +82,43 @@
 		}
 	}
 
+	// --- スクリプト内の適切な場所（変数定義付近）に追加 ---
+
+	let isTagInputFocused = $state(false); // フォーカス状態の管理 [cite: 108]
+
+	// 全ファイルからユニークな既存タグを抽出 + デフォルトタグ [cite: 141]
+	const defaultTags = ['仕事', '個人', 'アイデア'];
+	let tagSuggestions = $derived(() => {
+		const existingTags = files.flatMap((f) => f.tags || []).map((t: any) => t.name);
+		const combined = [...defaultTags, ...existingTags];
+		return [...new Set(combined)]; // 重複を排除
+	});
+
+	// 候補をクリックして追加する関数 [cite: 112, 113]
+	async function addSuggestedTag(tagName: string) {
+		if (!targetItem) return;
+
+		// すでに同じ名前のタグがある場合はスキップ
+		if ((targetItem.tags || []).some((t: any) => t.name === tagName)) {
+			newTagName = '';
+			return;
+		}
+
+		const newTag = { id: crypto.randomUUID(), name: tagName, color: '#4f46e5' };
+		const currentTags = targetItem.tags || [];
+
+		const { error } = await supabase
+			.from('files')
+			.update({ tags: [...currentTags, newTag] })
+			.eq('id', targetItem.id);
+
+		if (!error) {
+			targetItem.tags = [...currentTags, newTag];
+			newTagName = '';
+			await fetchFiles();
+		}
+	}
+
 	// --- 制限設定 ---
 	const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 	const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB (Supabase Free Tier)
@@ -1004,12 +1041,36 @@
 							</div>
 						{/each}
 					</div>
-					<input
-						bind:value={newTagName}
-						onkeydown={addTag}
-						class="input-base mb-6 w-full"
-						placeholder="Add tag and press Enter..."
-					/>
+
+					<div class="relative">
+						<input
+							bind:value={newTagName}
+							onkeydown={addTag}
+							onfocus={() => (isTagInputFocused = true)}
+							onblur={() => setTimeout(() => (isTagInputFocused = false), 200)}
+							class="input-base w-full"
+							placeholder="Add tag and press Enter..."
+						/>
+
+						{#if isTagInputFocused}
+							<div
+								transition:slide={{ duration: 150 }}
+								class="absolute top-full right-0 left-0 z-10 mt-2 flex flex-wrap gap-1.5 rounded-2xl border border-(--border-color) bg-(--bg-modal) p-3 shadow-xl"
+							>
+								<p class="mb-1 w-full text-[9px] font-black uppercase opacity-30">Suggestions</p>
+								{#each tagSuggestions() as suggestion}
+									<button
+										type="button"
+										onclick={() => addSuggestedTag(suggestion)}
+										class="rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-bold transition-colors hover:bg-(--accent-color) hover:text-white dark:bg-white/5"
+									>
+										{suggestion}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					<div class="mb-6"></div>
 				</div>
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
