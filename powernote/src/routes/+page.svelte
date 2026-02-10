@@ -10,6 +10,7 @@
 	let user = $state<any>(null);
 	let files = $state<any[]>([]);
 	let isSidebarOpen = $state(true);
+	let isLayoutMenuOpen = $state(false); // レイアウトメニュー用
 	let showModal = $state<'create' | 'import' | 'actions' | 'rename' | 'delete-confirm' | null>(
 		null
 	);
@@ -915,13 +916,28 @@
 			</div>
 
 			{#if activeView === 'editor'}
+				{#if isLayoutMenuOpen}
+					<div
+						class="fixed inset-0 z-30 lg:hidden"
+						onclick={() => (isLayoutMenuOpen = false)}
+						onkeydown={(e) => e.key === 'Escape' && (isLayoutMenuOpen = false)}
+						role="button"
+						tabindex="-1"
+						aria-label="Close layout menu"
+					></div>
+				{/if}
+
 				<div class="group/layout absolute right-6 bottom-6 z-40 flex items-center justify-end">
 					<div
-						class="flex h-12 w-12 items-center gap-1 overflow-hidden rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out
-			group-hover/layout:w-80"
+						class="flex h-12 items-center overflow-hidden rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out
+			{isLayoutMenuOpen ? 'w-70' : 'w-12'} lg:group-hover/layout:w-70"
 					>
-						<div
-							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-(--accent-color)"
+						<button
+							type="button"
+							onclick={() => (isLayoutMenuOpen = !isLayoutMenuOpen)}
+							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-(--accent-color) hover:bg-black/5 lg:cursor-default dark:hover:bg-white/5"
+							aria-label="Change layout"
+							aria-expanded={isLayoutMenuOpen}
 						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -938,20 +954,23 @@
 									d="M3 12h18"
 								/>
 							</svg>
-						</div>
+						</button>
 
 						<div
-							class="flex items-center gap-1 pr-2 opacity-0 transition-opacity duration-200 group-hover/layout:opacity-100"
+							class="flex items-center gap-0.5 pr-1.5 transition-opacity duration-200
+				{isLayoutMenuOpen ? 'opacity-100' : 'opacity-0'} lg:group-hover/layout:opacity-100"
 						>
 							{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
 								<button
+									type="button"
 									onclick={() => {
 										layoutMode = mode as LayoutMode;
 										const count = getViewCount(layoutMode);
 										while (viewStates.length < count) viewStates.push('');
 										if (activeViewIndex >= count) activeViewIndex = 0;
+										isLayoutMenuOpen = false;
 									}}
-									class="rounded-xl px-3 py-1.5 text-[10px] font-black whitespace-nowrap transition-all {layoutMode ===
+									class="rounded-xl px-2.5 py-1.5 text-[10px] font-black whitespace-nowrap transition-all {layoutMode ===
 									mode
 										? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
 										: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
