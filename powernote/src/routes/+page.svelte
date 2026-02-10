@@ -850,7 +850,8 @@
 							>
 								{#if viewFile}
 									<div
-										class="absolute top-6 right-6 z-20 opacity-0 transition-opacity group-hover/pane:opacity-100"
+										class="absolute top-6 right-6 z-20 opacity-100
+	transition-opacity lg:opacity-0 lg:group-hover/pane:opacity-100"
 									>
 										<button
 											onclick={() => openItemActions(viewFile)}
