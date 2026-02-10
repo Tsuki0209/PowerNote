@@ -116,9 +116,8 @@
 		await supabase.auth.signInWithOAuth({
 			provider: 'google',
 			options: {
-				// window.location.origin (https://tsuki0209.github.io)
-				// + baseパス (/PowerNote) を結合
-				redirectTo: window.location.origin + '/PowerNote'
+				redirectTo:
+					window.location.origin + (window.location.hostname === 'localhost' ? '' : '/PowerNote')
 			}
 		});
 	}
