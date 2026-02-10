@@ -946,7 +946,7 @@
 				<div class="group/layout absolute right-6 bottom-6 z-40 flex items-center justify-end">
 					<div
 						class="flex h-12 items-center overflow-hidden rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out
-            {isLayoutMenuOpen ? 'w-64' : 'w-12'} lg:group-hover/layout:w-64"
+            {isLayoutMenuOpen ? 'w-44' : 'w-12'} lg:group-hover/layout:w-44"
 					>
 						<button
 							type="button"
@@ -973,7 +973,7 @@
 						</button>
 
 						<div
-							class="flex items-center gap-1.5 pr-1.5 transition-opacity duration-200
+							class="flex items-center gap-1.5 px-2 whitespace-nowrap transition-opacity duration-200
                 {isLayoutMenuOpen ? 'opacity-100' : 'opacity-0'} lg:group-hover/layout:opacity-100"
 						>
 							<button
@@ -982,17 +982,21 @@
 									splitActivePane('horizontal');
 									isLayoutMenuOpen = false;
 								}}
-								class="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[10px] font-black uppercase opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+								aria-label="Split Vertically"
 							>
 								<svg
-									width="12"
-									height="12"
+									width="18"
+									height="18"
 									viewBox="0 0 24 24"
 									fill="none"
 									stroke="currentColor"
-									stroke-width="3"><path d="M12 3v18" /></svg
+									stroke-width="2.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
 								>
-								Split V
+									<rect width="18" height="18" x="3" y="3" rx="2" /><path d="M12 3v18" />
+								</svg>
 							</button>
 
 							<button
@@ -1001,17 +1005,21 @@
 									splitActivePane('vertical');
 									isLayoutMenuOpen = false;
 								}}
-								class="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[10px] font-black uppercase opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+								aria-label="Split Horizontally"
 							>
 								<svg
-									width="12"
-									height="12"
+									width="18"
+									height="18"
 									viewBox="0 0 24 24"
 									fill="none"
 									stroke="currentColor"
-									stroke-width="3"><path d="M3 12h18" /></svg
+									stroke-width="2.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
 								>
-								Split H
+									<rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 12h18" />
+								</svg>
 							</button>
 
 							<button
@@ -1020,17 +1028,21 @@
 									removeActivePane();
 									isLayoutMenuOpen = false;
 								}}
-								class="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[10px] font-black text-red-500 uppercase opacity-60 transition-all hover:bg-red-500/10 hover:opacity-100"
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+								aria-label="Remove Pane"
 							>
 								<svg
-									width="12"
-									height="12"
+									width="18"
+									height="18"
 									viewBox="0 0 24 24"
 									fill="none"
 									stroke="currentColor"
-									stroke-width="3"><path d="M18 6L6 18M6 6l12 12" /></svg
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
 								>
-								Close
+									<rect width="16" height="16" x="4" y="4" rx="2" />
+								</svg>
 							</button>
 						</div>
 					</div>
