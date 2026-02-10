@@ -36,23 +36,27 @@
 		if (scrollContainer) {
 			Sortable.create(scrollContainer, {
 				animation: 250,
-				delay: 200,
-				delayOnTouchOnly: true,
+				delay: 300, // 200から300に少し伸ばすとスマホでの誤作動が減り安定します
+				delayOnTouchOnly: true, // タッチ操作時のみ遅延を入れる
+				touchStartThreshold: 5, // 5px動くまではドラッグを開始しない（スクロールとの誤判定防止）
 				swapThreshold: 0.65,
 				draggable: '[role="listitem"]',
 				ghostClass: 'sortable-ghost',
-				// 移動を制限するロジックを追加
+				// 移動の制限ロジック
 				onMove: (evt) => {
-					const draggedTab = tabs[evt.dragged.dataset.index as any];
-					const targetTab = tabs[evt.related.dataset.index as any];
+					const draggedIdx = parseInt(evt.dragged.dataset.index || '0');
+					const targetIdx = parseInt(evt.related.dataset.index || '0');
 
-					// ピン留めタブと一般タブの境界を越える移動を禁止
-					if (draggedTab.is_pinned !== targetTab.is_pinned) {
+					const draggedTab = tabs[draggedIdx];
+					const targetTab = tabs[targetIdx];
+
+					if (draggedTab && targetTab && draggedTab.is_pinned !== targetTab.is_pinned) {
 						return false;
 					}
 				},
 				onEnd: (evt) => {
-					// 実際の配列を並び替えて親に通知
+					if (evt.oldIndex === evt.newIndex) return;
+
 					const newTabs = [...tabs];
 					const [movedItem] = newTabs.splice(evt.oldIndex!, 1);
 					newTabs.splice(evt.newIndex!, 0, movedItem);
@@ -92,7 +96,7 @@
 				role="listitem"
 				data-id={tab.id}
 				data-index={i}
-				class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full {activeTabId ===
+				class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full select-none {activeTabId ===
 				tab.id
 					? 'bg-(--accent-color)/10 ring-1 ring-(--accent-color)/30'
 					: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}"
