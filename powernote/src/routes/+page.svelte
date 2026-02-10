@@ -68,6 +68,19 @@
 			await fetchFiles();
 		}
 	}
+
+	const tagPresets = [
+		'#ef4444',
+		'#f97316',
+		'#f59e0b',
+		'#10b981',
+		'#06b6d4',
+		'#3b82f6',
+		'#6366f1',
+		'#8b5cf6',
+		'#d946ef',
+		'#64748b'
+	];
 	// --- タグ詳細（色・名前）の同期更新 ---
 	async function updateTagDetail() {
 		if (!targetItem || !editingTag) return;
@@ -1068,27 +1081,37 @@
 						<div class="mb-3 flex flex-wrap gap-2">
 							{#each targetItem.tags || [] as tag, i}
 								<div
-									role="listitem"
-									draggable="true"
-									ondragstart={() => (draggedTagIndex = i)}
-									ondragover={(e) => e.preventDefault()}
-									ondrop={() => handleTagDrop(i)}
-									class="flex cursor-move items-center gap-2 rounded-md border px-2 py-1 text-[11px] font-bold transition-all active:scale-95"
+									class="flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-bold"
 									style="background-color: {tag.color}15; border-color: {tag.color}40; color: {tag.color};"
 								>
-									{tag.name}
+									<span class="max-w-25 truncate">{tag.name}</span>
 									<button
+										type="button"
+										title="Edit Tag"
 										onclick={(e) => {
 											e.stopPropagation();
 											editingTag = { ...tag };
 											showTagEditModal = true;
 										}}
-										class="opacity-60 hover:opacity-100">●</button
+										class="flex h-6 w-6 items-center justify-center rounded-lg bg-black/5 dark:bg-white/10"
 									>
-									<button
-										onclick={() => removeTag(tag.id)}
-										class="ml-1 opacity-40 hover:opacity-100">×</button
-									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="14"
+											height="14"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
+												cx="12"
+												cy="19"
+												r="1"
+											/></svg
+										>
+									</button>
 								</div>
 							{/each}
 						</div>
@@ -1191,22 +1214,101 @@
 {/if}
 {#if showTagEditModal && editingTag}
 	<div
+		onclick={() => (showTagEditModal = false)}
+		role="presentation"
 		class="fixed inset-0 z-100 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
 	>
 		<div
-			class="w-full max-w-xs rounded-3xl border border-(--border-color) bg-(--bg-modal) p-6 shadow-2xl"
+			onclick={(e) => e.stopPropagation()}
+			role="presentation"
+			class="w-full max-w-xs rounded-4xl border border-(--border-color) bg-(--bg-modal) p-7 shadow-2xl"
 		>
-			<h4 class="mb-6 text-sm font-black uppercase">Edit Tag</h4>
-			<input bind:value={editingTag.name} class="input-base mb-4 w-full" />
-			<input
-				type="color"
-				bind:value={editingTag.color}
-				class="h-10 w-full rounded-md border-none bg-transparent"
-			/>
-			<button onclick={updateTagDetail} class="btn-primary mt-6 w-full">Save Tag</button>
-			<button onclick={() => (showTagEditModal = false)} class="btn-ghost mt-2 w-full"
-				>Cancel</button
-			>
+			<h4 class="mb-6 text-[10px] font-black tracking-widest uppercase opacity-40">Manage Tag</h4>
+
+			<div class="space-y-6">
+				<div class="space-y-1.5">
+					<label for="edit-tag-name" class="ml-1 text-[10px] font-bold uppercase opacity-40"
+						>Tag Name</label
+					>
+					<input id="edit-tag-name" bind:value={editingTag.name} class="input-base w-full py-3" />
+				</div>
+
+				<div class="space-y-2" role="group" aria-labelledby="color-select-label">
+					<span
+						id="color-select-label"
+						class="ml-1 block text-[10px] font-bold uppercase opacity-40">Select Color</span
+					>
+					<div class="grid grid-cols-5 gap-3 p-1">
+						{#each tagPresets as color}
+							<button
+								type="button"
+								onclick={(e) => {
+									editingTag!.color = color;
+									(e.currentTarget as HTMLButtonElement).blur();
+								}}
+								class="relative flex h-8 w-8 items-center justify-center rounded-full transition-all outline-none {editingTag.color ===
+								color
+									? 'scale-110 ring-2 ring-(--accent-color) ring-offset-2 dark:ring-offset-gray-900'
+									: 'opacity-70 hover:scale-105 hover:opacity-100'}"
+								style="background-color: {color};"
+								title={color}
+								aria-label="Select color {color}"
+								aria-pressed={editingTag.color === color}
+							>
+								{#if editingTag.color === color}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="white"
+										stroke-width="4"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<polyline points="20 6 9 17 4 12" />
+									</svg>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<div class="space-y-3 pt-2">
+					<button onclick={updateTagDetail} class="btn-primary w-full py-4 text-sm">
+						Save Changes
+					</button>
+
+					<button
+						onclick={() => {
+							removeTag(editingTag!.id);
+							showTagEditModal = false;
+						}}
+						class="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-xs font-bold text-red-500 hover:bg-red-500/10"
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path
+								d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"
+							/></svg
+						>
+						Remove from File
+					</button>
+
+					<button onclick={() => (showTagEditModal = false)} class="btn-ghost w-full py-3 text-xs">
+						Cancel
+					</button>
+				</div>
+			</div>
 		</div>
 	</div>
 {/if}
