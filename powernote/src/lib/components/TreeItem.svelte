@@ -34,12 +34,16 @@
 			onSelect(item);
 		}
 	}
+
+	let hovered = $state(false); // ← 追加
 </script>
 
-<div class="group/item relative mb-1 select-none">
+<div class="relative mb-1 select-none" role="group">
 	<button
 		onclick={handleToggle}
-		class="group flex w-full items-center rounded-xl px-4 py-2 text-[14px] font-medium transition-all
+		onmouseenter={() => (hovered = true)}
+		onmouseleave={() => (hovered = false)}
+		class="flex w-full items-center rounded-xl px-4 py-2 text-[14px] font-medium transition-all
         {selectedId === item.id
 			? 'bg-(--accent-color)/10 text-(--accent-color)'
 			: 'text-(--text-primary) hover:bg-black/5 dark:hover:bg-white/5'}"
@@ -79,7 +83,11 @@
 			e.stopPropagation();
 			onOpenActions(item);
 		}}
-		class="absolute top-1.5 right-2 flex h-7 w-7 items-center justify-center rounded-lg opacity-0 transition-all group-hover/item:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
+		onmouseenter={() => (hovered = true)}
+		onmouseleave={() => (hovered = false)}
+		class="absolute top-1.5 right-2 flex h-7 w-7 items-center justify-center rounded-lg
+           transition-all hover:bg-black/10 dark:hover:bg-white/10
+           {hovered ? 'opacity-100' : 'opacity-0'}"
 		aria-label="Item actions"
 	>
 		<svg
@@ -98,9 +106,12 @@
 	</button>
 
 	{#if item.is_folder && item.is_expanded}
-		<div class="mt-1 ml-6 border-l-2 border-(--border-color)/30">
+		<div class="pointer-events-none mt-1 ml-6 border-l-2 border-(--border-color)/30">
 			{#each children as child (child.id)}
-				<TreeItem item={child} {allFiles} {onSelect} {selectedId} {onOpenActions} />
+				<div class="pointer-events-auto">
+					<!-- pointer-events-auto 追加 -->
+					<TreeItem item={child} {allFiles} {onSelect} {selectedId} {onOpenActions} />
+				</div>
 			{:else}
 				<div class="py-2 pl-4 text-[11px] font-bold uppercase opacity-10 tracking-widest">
 					Empty
