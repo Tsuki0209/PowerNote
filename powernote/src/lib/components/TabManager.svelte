@@ -36,17 +36,27 @@
 		if (scrollContainer) {
 			Sortable.create(scrollContainer, {
 				animation: 250,
-				delay: 300, // 200から300に少し伸ばすとスマホでの誤作動が減り安定します
-				delayOnTouchOnly: true, // タッチ操作時のみ遅延を入れる
-				touchStartThreshold: 5, // 5px動くまではドラッグを開始しない（スクロールとの誤判定防止）
+				delay: 300,
+				delayOnTouchOnly: true,
+				touchStartThreshold: 5,
 				swapThreshold: 0.65,
 				draggable: '[role="listitem"]',
 				ghostClass: 'sortable-ghost',
-				// 移動の制限ロジック
+
+				// --- 自動スクロール設定 ---
+				scroll: true, // 自動スクロールを有効化
+				scrollSensitivity: 50, // 端から50pxの位置にきたらスクロール開始
+				scrollSpeed: 15, // スクロール速度
+				bubbleScroll: true, // 親要素のスクロールも考慮する
+
+				// --- 脱落防止 & スマホ安定化 ---
+				forceFallback: true, // ブラウザ標準のドラッグではなく自前で描画（消えにくくなる）
+				fallbackOnBody: true, // ドラッグ要素をbody直下に配置して、親のoverflow制限を無視する
+				fallbackTolerance: 3, // 少し動かさないとドラッグと判定しない
+
 				onMove: (evt) => {
 					const draggedIdx = parseInt(evt.dragged.dataset.index || '0');
 					const targetIdx = parseInt(evt.related.dataset.index || '0');
-
 					const draggedTab = tabs[draggedIdx];
 					const targetTab = tabs[targetIdx];
 
