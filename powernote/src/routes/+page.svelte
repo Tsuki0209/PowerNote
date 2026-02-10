@@ -660,7 +660,7 @@
 									{:else}
 										<textarea
 											bind:value={viewFile.content}
-											class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-10 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
+											class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-5 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
 											spellcheck="false"
 											placeholder="Start writing..."
 										></textarea>
