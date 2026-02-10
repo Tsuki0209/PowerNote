@@ -24,6 +24,7 @@
 		"@tailwindcss/typography": "^0.5.19",
 		"@tailwindcss/vite": "^4.1.18",
 		"@types/node": "^24",
+		"@types/sortablejs": "^1.15.9",
 		"eslint": "^9.39.2",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.14.0",
@@ -41,6 +42,7 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.95.3",
+		"sortablejs": "^1.15.6",
 		"svelte-french-toast": "^1.2.0",
 		"svelte-splitpanes": "^8.0.12"
 	}
