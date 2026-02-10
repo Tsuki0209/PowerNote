@@ -33,47 +33,97 @@
 	}: Props = $props();
 
 	onMount(() => {
-		if (scrollContainer) {
-			Sortable.create(scrollContainer, {
-				animation: 250,
-				delay: 300,
-				delayOnTouchOnly: true,
-				touchStartThreshold: 5,
-				swapThreshold: 0.65,
-				draggable: '[role="listitem"]',
-				ghostClass: 'sortable-ghost',
+		if (!scrollContainer) return;
 
-				// --- 自動スクロール設定 ---
-				scroll: true, // 自動スクロールを有効化
-				scrollSensitivity: 50, // 端から50pxの位置にきたらスクロール開始
-				scrollSpeed: 15, // スクロール速度
-				bubbleScroll: true, // 親要素のスクロールも考慮する
+		let scrollInterval: number | null = null;
 
-				// --- 脱落防止 & スマホ安定化 ---
-				forceFallback: true, // ブラウザ標準のドラッグではなく自前で描画（消えにくくなる）
-				fallbackOnBody: true, // ドラッグ要素をbody直下に配置して、親のoverflow制限を無視する
-				fallbackTolerance: 3, // 少し動かさないとドラッグと判定しない
+		const stopScrolling = () => {
+			if (scrollInterval) {
+				clearInterval(scrollInterval);
+				scrollInterval = null;
+			}
+		};
 
-				onMove: (evt) => {
-					const draggedIdx = parseInt(evt.dragged.dataset.index || '0');
-					const targetIdx = parseInt(evt.related.dataset.index || '0');
-					const draggedTab = tabs[draggedIdx];
-					const targetTab = tabs[targetIdx];
+		// --- ドラッグ中のマウス位置を直接監視 ---
+		const handleDragOver = (e: MouseEvent | TouchEvent) => {
+			// SortableJSがドラッグ中の時だけ動かす
+			const ghost = document.querySelector('.sortable-ghost');
+			if (!ghost) {
+				stopScrolling();
+				return;
+			}
 
-					if (draggedTab && targetTab && draggedTab.is_pinned !== targetTab.is_pinned) {
-						return false;
-					}
-				},
-				onEnd: (evt) => {
-					if (evt.oldIndex === evt.newIndex) return;
+			const container = scrollContainer!;
+			const rect = container.getBoundingClientRect();
 
-					const newTabs = [...tabs];
-					const [movedItem] = newTabs.splice(evt.oldIndex!, 1);
-					newTabs.splice(evt.newIndex!, 0, movedItem);
-					onReorder(newTabs);
+			// マウスかタッチから座標を取得
+			const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+
+			const threshold = 70; // 端から70pxで反応
+			const speed = 12;
+
+			if (clientX > rect.right - threshold) {
+				if (!scrollInterval) {
+					scrollInterval = window.setInterval(() => {
+						container.scrollLeft += speed;
+					}, 16);
 				}
-			});
-		}
+			} else if (clientX < rect.left + threshold) {
+				if (!scrollInterval) {
+					scrollInterval = window.setInterval(() => {
+						container.scrollLeft -= speed;
+					}, 16);
+				}
+			} else {
+				stopScrolling();
+			}
+		};
+
+		// イベント登録
+		scrollContainer.addEventListener('dragover', handleDragOver);
+		// スマホ用 (SortableJSのforceFallback時はこちらが重要)
+		window.addEventListener('touchmove', handleDragOver, { passive: false });
+		// PCでのforceFallback時はmousemoveが飛ぶ
+		window.addEventListener('mousemove', handleDragOver);
+
+		Sortable.create(scrollContainer, {
+			animation: 250,
+			delay: 300,
+			delayOnTouchOnly: true,
+			touchStartThreshold: 5,
+			swapThreshold: 0.65,
+			draggable: '[role="listitem"]',
+			ghostClass: 'sortable-ghost',
+			forceFallback: true,
+			fallbackOnBody: true,
+
+			onMove: (evt) => {
+				const draggedIdx = parseInt(evt.dragged.dataset.index || '0');
+				const targetIdx = parseInt(evt.related.dataset.index || '0');
+				const draggedTab = tabs[draggedIdx];
+				const targetTab = tabs[targetIdx];
+				if (draggedTab && targetTab && draggedTab.is_pinned !== targetTab.is_pinned) {
+					return false;
+				}
+			},
+			onEnd: (evt) => {
+				stopScrolling();
+				if (evt.oldIndex === evt.newIndex) return;
+				const newTabs = [...tabs];
+				const [movedItem] = newTabs.splice(evt.oldIndex!, 1);
+				newTabs.splice(evt.newIndex!, 0, movedItem);
+				onReorder(newTabs);
+			}
+		});
+
+		return () => {
+			stopScrolling();
+			scrollContainer?.removeEventListener('dragover', handleDragOver);
+			window.removeEventListener('touchmove', handleDragOver);
+			window.removeEventListener('mousemove', handleDragOver);
+			window.removeEventListener('mouseup', stopScrolling);
+			window.removeEventListener('touchend', stopScrolling);
+		};
 	});
 </script>
 
