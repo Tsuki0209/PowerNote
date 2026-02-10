@@ -1,12 +1,11 @@
 <script lang="ts">
 	import type { PaneNode } from '$lib/types';
-	// Svelte 5では自分自身のコンポーネント名をインポートして再帰呼び出しします
 	import SplitView from './SplitView.svelte';
 
 	let {
 		node = $bindable(),
 		files,
-		activeViewId = $bindable(''), // インデックスではなくIDで管理
+		activeViewId = $bindable(''),
 		onOpenActions,
 		isImage,
 		isVideo
@@ -19,21 +18,58 @@
 		isVideo: (ext: string) => boolean;
 	}>();
 
+	// リサイズ用：コンテナ要素の参照
+	let containerRef = $state<HTMLDivElement | null>(null);
+
 	const handlePaneClick = () => {
 		if (node.type === 'file') {
 			activeViewId = node.id;
 		}
 	};
+
+	// --- リサイズ処理の追加 ---
+	function startResizing(e: MouseEvent) {
+		if (!containerRef || node.type !== 'split') return;
+
+		const handleMouseMove = (moveEvent: MouseEvent) => {
+			if (!containerRef) return;
+			const rect = containerRef.getBoundingClientRect();
+			let newRatio: number;
+
+			if (node.direction === 'horizontal') {
+				// 左右分割の場合
+				newRatio = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+			} else {
+				// 上下分割の場合
+				newRatio = ((moveEvent.clientY - rect.top) / rect.height) * 100;
+			}
+
+			// 5%〜95%の範囲に制限
+			node.ratio = Math.max(5, Math.min(95, newRatio));
+		};
+
+		const handleMouseUp = () => {
+			window.removeEventListener('mousemove', handleMouseMove);
+			window.removeEventListener('mouseup', handleMouseUp);
+			document.body.style.cursor = 'default';
+		};
+
+		window.addEventListener('mousemove', handleMouseMove);
+		window.addEventListener('mouseup', handleMouseUp);
+
+		// ドラッグ中のカーソルを固定
+		document.body.style.cursor = node.direction === 'vertical' ? 'ns-resize' : 'ew-resize';
+	}
 </script>
 
-<div class="h-full w-full">
+<div class="h-full w-full" bind:this={containerRef}>
 	{#if node.type === 'split' && node.children}
 		<div
 			class="flex h-full w-full {node.direction === 'vertical'
 				? 'flex-col'
 				: 'flex-row'} divide-(--border-color)/30"
 		>
-			<div style="flex: {node.ratio || 50}%">
+			<div style="flex: {node.ratio || 50}%" class="overflow-hidden">
 				<SplitView
 					bind:node={node.children[0]}
 					{files}
@@ -45,12 +81,14 @@
 			</div>
 
 			<div
+				role="separator"
+				onmousedown={startResizing}
 				class="{node.direction === 'vertical'
 					? 'h-1 w-full cursor-ns-resize'
-					: 'h-full w-1 cursor-ew-resize'} bg-(--border-color)/10 transition-colors hover:bg-(--accent-color)/50"
+					: 'h-full w-1 cursor-ew-resize'} z-10 bg-(--border-color)/10 transition-colors hover:bg-(--accent-color)/50 active:bg-(--accent-color)"
 			></div>
 
-			<div style="flex: {100 - (node.ratio || 50)}%">
+			<div style="flex: {100 - (node.ratio || 50)}%" class="overflow-hidden">
 				<SplitView
 					bind:node={node.children[1]}
 					{files}
