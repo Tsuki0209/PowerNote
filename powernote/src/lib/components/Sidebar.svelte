@@ -81,14 +81,14 @@
 		</div>
 
 		<div class="mt-6 space-y-2">
-			<div class="flex rounded-lg bg-black/5 p-1 dark:bg-white/5">
+			<div class="flex rounded-xl bg-black/5 p-1 dark:bg-white/5">
 				{#each ['name', 'tag', 'content'] as mode}
 					<button
 						onclick={() => (searchMode = mode as any)}
-						class="flex-1 rounded-md py-1 text-[9px] font-bold uppercase transition-all {searchMode ===
+						class="flex-1 rounded-lg py-2 text-[10px] font-bold uppercase transition-all {searchMode ===
 						mode
-							? 'bg-white shadow-xs dark:bg-white/10'
-							: 'opacity-40'}"
+							? 'bg-white text-(--accent-color) shadow-sm dark:bg-white/10 dark:text-white'
+							: 'text-(--text-muted) opacity-60 hover:opacity-100'}"
 					>
 						{mode}
 					</button>
