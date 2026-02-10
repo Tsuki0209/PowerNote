@@ -593,9 +593,7 @@
 		</div>
 	</div>
 {:else}
-	<div
-		class="flex h-screen w-full gap-2 overflow-hidden bg-(--bg-main) p-2 font-sans md:gap-4 md:p-4"
-	>
+	<div class="flex h-screen w-full overflow-hidden bg-(--bg-main) p-2 font-sans md:p-4">
 		{#if isSidebarOpen}
 			<div
 				transition:slide={{ axis: 'x', duration: 300 }}
@@ -627,7 +625,8 @@
 		{/if}
 
 		<main
-			class="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
+			class="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm transition-[margin] duration-300"
+			class:md:ml-4={isSidebarOpen}
 		>
 			<header
 				class="flex h-16 shrink-0 items-center gap-2 border-b border-(--border-color)/30 bg-(--bg-sidebar) px-4"
