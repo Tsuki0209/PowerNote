@@ -37,7 +37,7 @@
 </script>
 
 <aside
-	class="flex h-full w-68 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
+	class="flex h-full w-80 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
 >
 	<div class="p-8 pb-4">
 		<div class="mb-8 flex items-center gap-3">
