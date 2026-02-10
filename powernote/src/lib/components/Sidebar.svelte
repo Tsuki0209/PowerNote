@@ -87,11 +87,11 @@
 
 		<div class="mt-6 space-y-2">
 			<div
-				class="relative flex h-9 items-center justify-center overflow-hidden rounded-xl bg-black/5 transition-all focus-within:bg-black/10 dark:bg-white/5 dark:focus-within:bg-white/10"
+				class="relative flex h-11 items-center overflow-hidden rounded-xl bg-black/5 transition-all focus-within:bg-black/10 focus-within:ring-2 focus-within:ring-(--accent-color)/20 dark:bg-white/5 dark:focus-within:bg-white/10"
 			>
-				<div class="pointer-events-none flex items-center justify-center pl-3">
+				<div class="pointer-events-none absolute left-3 flex items-center justify-center">
 					<svg
-						class="h-3.5 w-3.5 opacity-30"
+						class="h-4 w-4 opacity-40"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
@@ -102,23 +102,42 @@
 				</div>
 				<input
 					bind:value={searchQuery}
-					placeholder="Search..."
-					class="h-full flex-1 border-none bg-transparent px-2 text-[11px] outline-none"
+					placeholder="Search notes..."
+					class="h-full w-full border-none bg-transparent pl-10 {searchQuery
+						? 'pr-10'
+						: 'pr-4'} text-[13px] outline-none"
 				/>
+				{#if searchQuery}
+					<button
+						onclick={() => (searchQuery = '')}
+						aria-label="Clear search"
+						class="absolute right-0 flex h-full items-center px-3 opacity-40 transition-opacity hover:opacity-100"
+					>
+						<svg
+							class="h-4 w-4"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="3"
+						>
+							<path d="M18 6L6 18M6 6l12 12" />
+						</svg>
+					</button>
+				{/if}
 			</div>
 
 			<div
-				class="flex gap-1 overflow-hidden transition-all duration-200 {searchQuery
-					? 'mt-2 h-7 opacity-100'
+				class="flex gap-1.5 overflow-hidden transition-all duration-300 {searchQuery
+					? 'mt-3 h-9 opacity-100'
 					: 'h-0 opacity-0'}"
 			>
 				{#each ['all', 'name', 'tag', 'content'] as filter}
 					<button
 						onclick={() => (searchFilter = filter as any)}
-						class="flex-1 rounded-lg text-[9px] font-black uppercase transition-all {searchFilter ===
+						class="flex-1 rounded-lg text-[10px] font-black tracking-wider uppercase transition-all {searchFilter ===
 						filter
-							? 'bg-(--accent-color) text-white shadow-sm'
-							: 'bg-black/5 text-(--text-muted) opacity-60 hover:opacity-100 dark:bg-white/5'}"
+							? 'bg-(--accent-color) text-white shadow-md'
+							: 'bg-black/5 text-(--text-muted) hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}"
 					>
 						{filter}
 					</button>
@@ -150,7 +169,7 @@
 		>
 			<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
 				><circle cx="12" cy="12" r="3" /><path
-					d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"
+					d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"
 				/></svg
 			>
 			Settings
