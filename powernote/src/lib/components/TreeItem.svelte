@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { supabase } from '$lib/supabaseClient'; // 追加
 	import TreeItem from './TreeItem.svelte';
+	import FileIcon from './FileIcon.svelte';
 
 	let { item, allFiles, onSelect, selectedId, onOpenActions } = $props<{
 		item: any;
@@ -61,16 +62,7 @@
 					stroke-width="3"><path d="M9 18l6-6-6-6" /></svg
 				>
 			{:else}
-				<svg
-					class="h-4 w-4"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke={item.tags?.length > 0 ? item.tags[0].color : 'currentColor'}
-					stroke-width="2"
-				>
-					<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
-					<path d="M13 2v7h7" />
-				</svg>
+				<FileIcon extension={item.extension} tags={item.tags} className="h-4 w-4" />
 			{/if}
 		</span>
 		<span class="truncate tracking-tight">
