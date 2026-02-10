@@ -88,51 +88,30 @@
 
 		Sortable.create(scrollContainer, {
 			animation: 250,
-			delay: 200, // 少し短くしてレスポンスを改善
+			delay: 300,
 			delayOnTouchOnly: true,
-			touchStartThreshold: 10, // スマホでの「遊び」を少し増やす
-			swapThreshold: 0.5, // 0.65から下げて、半分重なったら入れ替わるように
+			touchStartThreshold: 5,
+			swapThreshold: 0.65,
 			draggable: '[role="listitem"]',
 			ghostClass: 'sortable-ghost',
-
-			// --- ここが重要 ---
 			forceFallback: true,
-			fallbackOnBody: false, // trueだとスマホで消失しやすいのでfalseに
-			fallbackTolerance: 5, // わずかな動きでキャンセルされないように
-			scroll: false, // 自前スクロールと干渉させない
-
-			// ドラッグ中の見た目を固定（勝手に消えないように）
-			onStart: (evt) => {
-				// ドラッグ開始時に少し透過させるなどの処理があれば
-				document.body.style.cursor = 'grabbing';
-			},
+			fallbackOnBody: true,
 
 			onMove: (evt) => {
 				const draggedIdx = parseInt(evt.dragged.dataset.index || '0');
 				const targetIdx = parseInt(evt.related.dataset.index || '0');
 				const draggedTab = tabs[draggedIdx];
 				const targetTab = tabs[targetIdx];
-
-				// ピン留めを跨ぐ移動を禁止
 				if (draggedTab && targetTab && draggedTab.is_pinned !== targetTab.is_pinned) {
 					return false;
 				}
 			},
-
 			onEnd: (evt) => {
 				stopScrolling();
-				document.body.style.cursor = 'default';
-
-				if (
-					evt.oldIndex === undefined ||
-					evt.newIndex === undefined ||
-					evt.oldIndex === evt.newIndex
-				)
-					return;
-
+				if (evt.oldIndex === evt.newIndex) return;
 				const newTabs = [...tabs];
-				const [movedItem] = newTabs.splice(evt.oldIndex, 1);
-				newTabs.splice(evt.newIndex, 0, movedItem);
+				const [movedItem] = newTabs.splice(evt.oldIndex!, 1);
+				newTabs.splice(evt.newIndex!, 0, movedItem);
 				onReorder(newTabs);
 			}
 		});
