@@ -729,7 +729,7 @@
 <Toaster />
 
 {#if !user}
-	<div class="flex h-screen w-full flex-col items-center justify-center bg-(--bg-main) p-4">
+	<div class="flex h-dvh w-full flex-col items-center justify-center bg-(--bg-main) p-4">
 		<div
 			class="w-full max-w-sm rounded-4xl border border-(--border-color) bg-(--bg-modal) p-12 text-center shadow-2xl"
 		>
@@ -762,7 +762,7 @@
 		</div>
 	</div>
 {:else}
-	<div class="flex h-screen w-full overflow-hidden bg-(--bg-main) p-2 font-sans md:p-4">
+	<div class="flex h-dvh w-full overflow-hidden bg-(--bg-main) p-2 font-sans md:p-4">
 		{#if isSidebarOpen}
 			<div
 				transition:slide={{ axis: 'x', duration: 300 }}
