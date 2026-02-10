@@ -77,7 +77,13 @@
 					onclick={() => onSelect(tab)}
 					class="flex h-full min-w-0 flex-1 items-center gap-2 pr-2 pl-4 text-[12px] font-bold"
 				>
-					<FileIcon extension={tab.extension} tags={tab.tags} className="h-3.5 w-3.5" />
+					<div
+						class="flex h-4 w-4 items-center justify-center opacity-40"
+						style={tab.tags?.length > 0 ? 'opacity: 1;' : ''}
+					>
+						<FileIcon extension={tab.extension} tags={tab.tags} className="h-3.5 w-3.5" />
+					</div>
+
 					<span
 						class="truncate {activeTabId === tab.id
 							? 'text-(--accent-color)'
