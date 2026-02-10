@@ -1062,65 +1062,68 @@
 						{/if}
 					{/if}
 				</div>
-				<div class="space-y-2">
-					<span class="text-label">Tags</span>
-					<div class="mb-3 flex flex-wrap gap-2">
-						{#each targetItem.tags || [] as tag, i}
-							<div
-								role="listitem"
-								draggable="true"
-								ondragstart={() => (draggedTagIndex = i)}
-								ondragover={(e) => e.preventDefault()}
-								ondrop={() => handleTagDrop(i)}
-								class="flex cursor-move items-center gap-2 rounded-md border px-2 py-1 text-[11px] font-bold transition-all active:scale-95"
-								style="background-color: {tag.color}15; border-color: {tag.color}40; color: {tag.color};"
-							>
-								{tag.name}
-								<button
-									onclick={(e) => {
-										e.stopPropagation();
-										editingTag = { ...tag };
-										showTagEditModal = true;
-									}}
-									class="opacity-60 hover:opacity-100">●</button
+				{#if !targetItem?.is_folder}
+					<div class="space-y-2">
+						<span class="text-label">Tags</span>
+						<div class="mb-3 flex flex-wrap gap-2">
+							{#each targetItem.tags || [] as tag, i}
+								<div
+									role="listitem"
+									draggable="true"
+									ondragstart={() => (draggedTagIndex = i)}
+									ondragover={(e) => e.preventDefault()}
+									ondrop={() => handleTagDrop(i)}
+									class="flex cursor-move items-center gap-2 rounded-md border px-2 py-1 text-[11px] font-bold transition-all active:scale-95"
+									style="background-color: {tag.color}15; border-color: {tag.color}40; color: {tag.color};"
 								>
-								<button onclick={() => removeTag(tag.id)} class="ml-1 opacity-40 hover:opacity-100"
-									>×</button
-								>
-							</div>
-						{/each}
-					</div>
-
-					<div class="relative">
-						<input
-							bind:value={newTagName}
-							onkeydown={addTag}
-							onfocus={() => (isTagInputFocused = true)}
-							onblur={() => setTimeout(() => (isTagInputFocused = false), 200)}
-							class="input-base w-full"
-							placeholder="Add tag and press Enter..."
-						/>
-
-						{#if isTagInputFocused}
-							<div
-								transition:slide={{ duration: 150 }}
-								class="absolute top-full right-0 left-0 z-10 mt-2 flex flex-wrap gap-1.5 rounded-2xl border border-(--border-color) bg-(--bg-modal) p-3 shadow-xl"
-							>
-								<p class="mb-1 w-full text-[9px] font-black uppercase opacity-30">Suggestions</p>
-								{#each tagSuggestions() as suggestion}
+									{tag.name}
 									<button
-										type="button"
-										onclick={() => addSuggestedTag(suggestion)}
-										class="rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-bold transition-colors hover:bg-(--accent-color) hover:text-white dark:bg-white/5"
+										onclick={(e) => {
+											e.stopPropagation();
+											editingTag = { ...tag };
+											showTagEditModal = true;
+										}}
+										class="opacity-60 hover:opacity-100">●</button
 									>
-										{suggestion}
-									</button>
-								{/each}
-							</div>
-						{/if}
+									<button
+										onclick={() => removeTag(tag.id)}
+										class="ml-1 opacity-40 hover:opacity-100">×</button
+									>
+								</div>
+							{/each}
+						</div>
+
+						<div class="relative">
+							<input
+								bind:value={newTagName}
+								onkeydown={addTag}
+								onfocus={() => (isTagInputFocused = true)}
+								onblur={() => setTimeout(() => (isTagInputFocused = false), 200)}
+								class="input-base w-full"
+								placeholder="Add tag and press Enter..."
+							/>
+
+							{#if isTagInputFocused}
+								<div
+									transition:slide={{ duration: 150 }}
+									class="absolute top-full right-0 left-0 z-10 mt-2 flex flex-wrap gap-1.5 rounded-2xl border border-(--border-color) bg-(--bg-modal) p-3 shadow-xl"
+								>
+									<p class="mb-1 w-full text-[9px] font-black uppercase opacity-30">Suggestions</p>
+									{#each tagSuggestions() as suggestion}
+										<button
+											type="button"
+											onclick={() => addSuggestedTag(suggestion)}
+											class="rounded-lg bg-black/5 px-2.5 py-1 text-[11px] font-bold transition-colors hover:bg-(--accent-color) hover:text-white dark:bg-white/5"
+										>
+											{suggestion}
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+						<div class="mb-6"></div>
 					</div>
-					<div class="mb-6"></div>
-				</div>
+				{/if}
 				<div class="grid grid-cols-1 gap-2">
 					{#if !targetItem?.is_folder}
 						<button
