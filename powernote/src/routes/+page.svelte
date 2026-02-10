@@ -161,7 +161,15 @@
 	let folders = $derived(files.filter((f) => f.is_folder));
 	let folderOptions = $derived([
 		{ id: null, name: '/ Root' },
-		...folders.map((f) => ({ id: f.id, name: f.name }))
+		...folders
+			.filter((f) => {
+				// アクション（移動）モーダル表示中の場合、自分自身と子孫フォルダは選択肢から除外する
+				if (showModal === 'actions' && targetItem?.is_folder) {
+					return !isDescendant(f.id, targetItem.id);
+				}
+				return true;
+			})
+			.map((f) => ({ id: f.id, name: f.name }))
 	]);
 	// --- ヘルパー関数 ---
 	function isImage(ext: string) {
@@ -172,6 +180,29 @@
 	}
 	function isTextFile(ext: string) {
 		return !isImage(ext) && !isVideo(ext);
+	}
+	// --- 既存のヘルパー関数の付近に追加 ---
+	function isNameDuplicate(
+		name: string,
+		extension: string | null,
+		parentId: string | null,
+		excludeId?: string
+	) {
+		return files.some(
+			(f) =>
+				f.name === name &&
+				f.extension === extension &&
+				f.parent_id === parentId &&
+				f.id !== excludeId
+		);
+	}
+
+	// 循環移動防止：指定したフォルダが自分自身または子孫かどうかを判定
+	function isDescendant(folderId: string | null, targetId: string): boolean {
+		if (!folderId) return false;
+		if (folderId === targetId) return true;
+		const parent = files.find((f) => f.id === folderId);
+		return parent ? isDescendant(parent.parent_id, targetId) : false;
 	}
 
 	async function login() {
@@ -300,6 +331,17 @@
 
 	async function updateItem() {
 		if (!targetItem || !newName) return;
+
+		// 1. 名前重複チェック
+		if (isNameDuplicate(newName, targetItem.extension, targetFolderId, targetItem.id)) {
+			return toast.error('An item with this name already exists in this folder');
+		}
+
+		// 2. 循環参照チェック (フォルダの場合のみ)
+		if (targetItem.is_folder && isDescendant(targetFolderId, targetItem.id)) {
+			return toast.error('Cannot move a folder into itself or its subfolders');
+		}
+
 		const { error } = await supabase
 			.from('files')
 			.update({ name: newName, parent_id: targetFolderId })
@@ -371,10 +413,17 @@
 	async function handleCreate() {
 		if (!newName) return toast.error('Name required');
 		const isFolder = createType === 'folder';
+		const ext = isFolder ? null : 'txt';
+
+		// 重複チェック
+		if (isNameDuplicate(newName, ext, targetFolderId)) {
+			return toast.error('An item with this name already exists in this folder');
+		}
+
 		const { error } = await supabase.from('files').insert([
 			{
 				name: newName,
-				extension: isFolder ? null : 'txt',
+				extension: ext,
 				is_folder: isFolder,
 				parent_id: targetFolderId,
 				content: '',
@@ -383,6 +432,7 @@
 				user_id: user.id
 			}
 		]);
+
 		if (error) toast.error('Error creating item');
 		else {
 			closeModals();
@@ -425,6 +475,11 @@
 
 	async function confirmImport() {
 		if (!pendingImport) return;
+		// 重複チェック
+		if (isNameDuplicate(pendingImport.name, pendingImport.extension, targetFolderId)) {
+			return toast.error('An item with this name already exists in this folder');
+		}
+
 		const { error } = await supabase.from('files').insert([
 			{
 				name: pendingImport.name,

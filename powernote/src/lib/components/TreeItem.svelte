@@ -70,7 +70,7 @@
 			{/if}
 		</span>
 		<span class="truncate tracking-tight">
-			{item.name}{item.is_folder ? '' : '.' + item.extension}
+			{item.name}{!item.is_folder && item.extension ? '.' + item.extension : ''}
 		</span>
 	</button>
 
