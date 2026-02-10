@@ -91,6 +91,7 @@
 			delay: 300,
 			delayOnTouchOnly: true,
 			touchStartThreshold: 5,
+			fallbackTolerance: 3,
 			swapThreshold: 0.65,
 			draggable: '[role="listitem"]',
 			ghostClass: 'sortable-ghost',
@@ -233,5 +234,10 @@
 	.scrollbar-none {
 		-ms-overflow-style: none;
 		scrollbar-width: none;
+	}
+
+	[role='listitem'] {
+		touch-action: none;
+		-webkit-user-drag: none; /* iOS Safari用 */
 	}
 </style>
