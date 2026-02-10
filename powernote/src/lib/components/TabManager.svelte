@@ -35,11 +35,24 @@
 	onMount(() => {
 		if (scrollContainer) {
 			Sortable.create(scrollContainer, {
-				animation: 150,
+				animation: 250,
 				delay: 200,
 				delayOnTouchOnly: true,
+				swapThreshold: 0.65,
 				draggable: '[role="listitem"]',
+				ghostClass: 'sortable-ghost',
+				// 移動を制限するロジックを追加
+				onMove: (evt) => {
+					const draggedTab = tabs[evt.dragged.dataset.index as any];
+					const targetTab = tabs[evt.related.dataset.index as any];
+
+					// ピン留めタブと一般タブの境界を越える移動を禁止
+					if (draggedTab.is_pinned !== targetTab.is_pinned) {
+						return false;
+					}
+				},
 				onEnd: (evt) => {
+					// 実際の配列を並び替えて親に通知
 					const newTabs = [...tabs];
 					const [movedItem] = newTabs.splice(evt.oldIndex!, 1);
 					newTabs.splice(evt.newIndex!, 0, movedItem);
@@ -74,11 +87,12 @@
 		role="list"
 		class="scrollbar-none flex h-full items-center gap-2 overflow-x-auto scroll-smooth px-4"
 	>
-		{#each tabs as tab (tab.id)}
+		{#each tabs as tab, i (tab.id)}
 			<div
 				role="listitem"
 				data-id={tab.id}
-				class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full transition-all active:cursor-grabbing {activeTabId ===
+				data-index={i}
+				class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full {activeTabId ===
 				tab.id
 					? 'bg-(--accent-color)/10 ring-1 ring-(--accent-color)/30'
 					: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}"
