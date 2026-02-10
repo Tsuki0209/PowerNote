@@ -128,21 +128,6 @@
 			await fetchFiles(); // 失敗した場合は再取得して整合性を戻す [cite: 42]
 		}
 	}
-	async function handleTagDrop(targetIndex: number) {
-		if (draggedTagIndex === null || !targetItem) return;
-		const updatedTags = [...(targetItem.tags || [])];
-		const [draggedTag] = updatedTags.splice(draggedTagIndex, 1);
-		updatedTags.splice(targetIndex, 0, draggedTag);
-		const { error } = await supabase
-			.from('files')
-			.update({ tags: updatedTags })
-			.eq('id', targetItem.id);
-		if (!error) {
-			targetItem.tags = updatedTags;
-			draggedTagIndex = null;
-			await fetchFiles();
-		}
-	}
 
 	// --- スクリプト内の適切な場所（変数定義付近）に追加 ---
 
@@ -1190,10 +1175,31 @@
 				{#if !targetItem?.is_folder}
 					<div class="space-y-2">
 						<span class="text-label">Tags</span>
-						<div class="mb-3 flex flex-wrap gap-2">
+						<div class="mb-3 flex flex-wrap gap-2" role="list">
 							{#each targetItem.tags || [] as tag, i}
 								<div
-									class="flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-bold"
+									draggable="true"
+									role="listitem"
+									ondragstart={() => (draggedTagIndex = i)}
+									ondragover={(e) => {
+										e.preventDefault();
+										e.dataTransfer!.dropEffect = 'move';
+									}}
+									ondrop={(e) => {
+										e.preventDefault();
+										if (draggedTagIndex !== null && draggedTagIndex !== i) {
+											const updatedTags = [...targetItem.tags];
+											const [movedTag] = updatedTags.splice(draggedTagIndex, 1);
+											updatedTags.splice(i, 0, movedTag);
+											targetItem.tags = updatedTags;
+											// updateFile(targetItem); // DB保存が必要な場合
+										}
+										draggedTagIndex = null;
+									}}
+									class="flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-bold transition-opacity {draggedTagIndex ===
+									i
+										? 'opacity-30'
+										: 'opacity-100'}"
 									style="background-color: {tag.color}15; border-color: {tag.color}40; color: {tag.color};"
 								>
 									<span class="max-w-25 truncate">{tag.name}</span>
@@ -1217,12 +1223,13 @@
 											stroke-width="2.5"
 											stroke-linecap="round"
 											stroke-linejoin="round"
-											><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
+										>
+											<circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle
 												cx="12"
 												cy="19"
 												r="1"
-											/></svg
-										>
+											/>
+										</svg>
 									</button>
 								</div>
 							{/each}
