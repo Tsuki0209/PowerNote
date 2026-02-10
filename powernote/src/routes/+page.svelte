@@ -28,12 +28,27 @@
 	async function addTag(e: KeyboardEvent) {
 		if (e.key === 'Enter' && newTagName.trim() && targetItem) {
 			e.preventDefault();
-			const newTag = { id: crypto.randomUUID(), name: newTagName.trim(), color: '#4f46e5' };
+			const name = newTagName.trim();
+
+			// すでに同じ名前のタグがこのアイテムにある場合はスキップ
+			if ((targetItem.tags || []).some((t: any) => t.name === name)) {
+				newTagName = '';
+				return;
+			}
+
+			// 全ファイルから同じ名前のタグを探して色とIDを同期（共有の擬似実現）
+			const existingTag = files.flatMap((f) => f.tags || []).find((t: any) => t.name === name);
+
+			const newTag = existingTag
+				? { ...existingTag } // 既存があればそれを使う
+				: { id: crypto.randomUUID(), name, color: '#4f46e5' }; // 新規
+
 			const currentTags = targetItem.tags || [];
 			const { error } = await supabase
 				.from('files')
 				.update({ tags: [...currentTags, newTag] })
 				.eq('id', targetItem.id);
+
 			if (!error) {
 				targetItem.tags = [...currentTags, newTag];
 				newTagName = '';
@@ -53,17 +68,48 @@
 			await fetchFiles();
 		}
 	}
+	// --- タグ詳細（色・名前）の同期更新 ---
 	async function updateTagDetail() {
 		if (!targetItem || !editingTag) return;
-		const updatedTags = targetItem.tags.map((t: any) => (t.id === editingTag!.id ? editingTag : t));
-		const { error } = await supabase
-			.from('files')
-			.update({ tags: updatedTags })
-			.eq('id', targetItem.id);
-		if (!error) {
-			targetItem.tags = updatedTags;
-			showTagEditModal = false;
-			await fetchFiles();
+
+		// 1. 同期対象の元のタグ名を特定
+		const originalTag = targetItem.tags.find((t: any) => t.id === editingTag!.id);
+		const originalName = originalTag?.name;
+
+		// 2. ローカルの状態 (files) を即座に更新してUIに反映させる
+		// これによりモーダル内の表示や背後のエディタ表示が即座に変わります
+		files = files.map((file) => {
+			if (!file.tags) return file;
+
+			const newTags = file.tags.map((t: any) => {
+				// IDが一致、または名前が一致するタグをすべて同期
+				if (t.id === editingTag!.id || (originalName && t.name === originalName)) {
+					return { ...editingTag };
+				}
+				return t;
+			});
+
+			// targetItemもfilesの参照の一部なので、ここで一致するものを更新
+			if (file.id === targetItem.id) {
+				targetItem.tags = newTags;
+			}
+
+			return { ...file, tags: newTags };
+		});
+
+		// 3. データベース（Supabase）への一括反映
+		const updatePromises = files
+			.filter((f) => f.tags?.some((t: any) => t.id === editingTag!.id || t.name === originalName))
+			.map((f) => supabase.from('files').update({ tags: f.tags }).eq('id', f.id));
+
+		const results = await Promise.all(updatePromises);
+
+		if (results.every((r) => !r.error)) {
+			showTagEditModal = false; // 保存成功時に閉じる
+			toast.success('Tags synchronized across all files');
+		} else {
+			toast.error('Failed to sync some files');
+			await fetchFiles(); // 失敗した場合は再取得して整合性を戻す [cite: 42]
 		}
 	}
 	async function handleTagDrop(targetIndex: number) {
@@ -97,16 +143,19 @@
 	// 候補をクリックして追加する関数 [cite: 112, 113]
 	async function addSuggestedTag(tagName: string) {
 		if (!targetItem) return;
-
-		// すでに同じ名前のタグがある場合はスキップ
 		if ((targetItem.tags || []).some((t: any) => t.name === tagName)) {
 			newTagName = '';
 			return;
 		}
 
-		const newTag = { id: crypto.randomUUID(), name: tagName, color: '#4f46e5' };
-		const currentTags = targetItem.tags || [];
+		// 既存のタグ情報を取得（色などを引き継ぐ）
+		const sharedTag = files.flatMap((f) => f.tags || []).find((t: any) => t.name === tagName);
 
+		const newTag = sharedTag
+			? { ...sharedTag }
+			: { id: crypto.randomUUID(), name: tagName, color: '#4f46e5' };
+
+		const currentTags = targetItem.tags || [];
 		const { error } = await supabase
 			.from('files')
 			.update({ tags: [...currentTags, newTag] })
