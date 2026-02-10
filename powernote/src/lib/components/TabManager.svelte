@@ -1,17 +1,17 @@
 <script lang="ts">
 	import FileIcon from './FileIcon.svelte';
+	import { onMount } from 'svelte'; // 追加
+	import Sortable from 'sortablejs'; // 追加
 	interface Props {
 		tabs: any[];
 		activeTabId: string | null;
-		draggingTabId: string | null;
+		// draggingTabId は削除
 		canScrollLeft: boolean;
 		canScrollRight: boolean;
 		scrollContainer: HTMLDivElement | null;
 		onSelect: (tab: any) => void;
 		onClose: (id: string, e: MouseEvent) => void;
-		onDragStart: (id: string) => void;
-		onDragOver: (e: DragEvent, id: string) => void;
-		onDragEnd: () => void;
+		onReorder: (newTabs: any[]) => void; // 追加
 		onScroll: () => void;
 		onWheel: (e: WheelEvent) => void;
 		scrollTabs: (direction: 'left' | 'right') => void;
@@ -20,19 +20,34 @@
 	let {
 		tabs,
 		activeTabId,
-		draggingTabId,
+		// draggingTabId は削除
 		canScrollLeft,
 		canScrollRight,
 		scrollContainer = $bindable(),
 		onSelect,
 		onClose,
-		onDragStart,
-		onDragOver,
-		onDragEnd,
+		onReorder, // 追加
 		onScroll,
 		onWheel,
 		scrollTabs
 	}: Props = $props();
+
+	onMount(() => {
+		if (scrollContainer) {
+			Sortable.create(scrollContainer, {
+				animation: 150,
+				delay: 200,
+				delayOnTouchOnly: true,
+				draggable: '[role="listitem"]',
+				onEnd: (evt) => {
+					const newTabs = [...tabs];
+					const [movedItem] = newTabs.splice(evt.oldIndex!, 1);
+					newTabs.splice(evt.newIndex!, 0, movedItem);
+					onReorder(newTabs);
+				}
+			});
+		}
+	});
 </script>
 
 <div class="group/header relative h-full flex-1 overflow-hidden">
@@ -62,16 +77,11 @@
 		{#each tabs as tab (tab.id)}
 			<div
 				role="listitem"
-				draggable="true"
-				ondragstart={() => onDragStart(tab.id)}
-				ondragover={(e) => onDragOver(e, tab.id)}
-				ondragend={onDragEnd}
+				data-id={tab.id}
 				class="group relative flex h-9 w-40 shrink-0 cursor-grab items-center overflow-hidden rounded-full transition-all active:cursor-grabbing {activeTabId ===
 				tab.id
 					? 'bg-(--accent-color)/10 ring-1 ring-(--accent-color)/30'
-					: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'} {draggingTabId === tab.id
-					? 'opacity-40'
-					: 'opacity-100'}"
+					: 'bg-(--bg-main)/50 hover:bg-black/5 dark:hover:bg-white/5'}"
 			>
 				<button
 					onclick={() => onSelect(tab)}
@@ -92,11 +102,12 @@
 				</button>
 				{#if tab.is_pinned}
 					<div class="absolute right-3 text-(--accent-color)">
-						<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"
-							><path
+						<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+							<path
 								d="M9 4v1.2a5 5 0 0 0 1.5 3.5l.5.5v4.4l-2 3v1h8v-1l-2-3V9.2l.5-.5a5 5 0 0 0 1.5-3.5V4H9Z"
-							/><path d="M12 17v7" /></svg
-						>
+							/>
+							<path d="M12 17v7" />
+						</svg>
 					</div>
 				{:else}
 					<button
@@ -109,8 +120,10 @@
 							viewBox="0 0 24 24"
 							fill="none"
 							stroke="currentColor"
-							stroke-width="3"><path d="M18 6L6 18M6 6l12 12" /></svg
+							stroke-width="3"
 						>
+							<path d="M18 6L6 18M6 6l12 12" />
+						</svg>
 					</button>
 				{/if}
 			</div>

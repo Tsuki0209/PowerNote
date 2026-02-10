@@ -8,6 +8,8 @@
 	import { slide } from 'svelte/transition';
 	import SplitView from '$lib/components/SplitView.svelte';
 	import type { PaneNode } from '$lib/types';
+	import Sortable from 'sortablejs'; // 追加
+	import { tick } from 'svelte'; // 追加
 
 	let user = $state<any>(null);
 	let files = $state<any[]>([]);
@@ -26,7 +28,6 @@
 	let newTagName = $state('');
 	let showTagEditModal = $state(false);
 	let editingTag = $state<{ id: string; name: string; color: string } | null>(null);
-	let draggedTagIndex = $state<number | null>(null);
 
 	async function addTag(e: KeyboardEvent) {
 		if (e.key === 'Enter' && newTagName.trim() && targetItem) {
@@ -168,6 +169,42 @@
 			await fetchFiles();
 		}
 	}
+
+	async function saveTagOrder(newTags: any[]) {
+		if (!targetItem) return;
+		const { error } = await supabase
+			.from('files')
+			.update({ tags: newTags })
+			.eq('id', targetItem.id);
+
+		if (!error) {
+			targetItem.tags = newTags;
+			await fetchFiles();
+		} else {
+			toast.error('Failed to save tag order');
+		}
+	}
+
+	$effect(() => {
+		if (showModal === 'actions' && targetItem) {
+			tick().then(() => {
+				const el = document.getElementById('tag-list');
+				if (el) {
+					Sortable.create(el, {
+						animation: 150,
+						delay: 200,
+						delayOnTouchOnly: true,
+						onEnd: (evt) => {
+							const newTags = [...targetItem.tags];
+							const [movedItem] = newTags.splice(evt.oldIndex!, 1);
+							newTags.splice(evt.newIndex!, 0, movedItem);
+							saveTagOrder(newTags);
+						}
+					});
+				}
+			});
+		}
+	});
 
 	// --- 制限設定 ---
 	const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -820,15 +857,22 @@
 					<TabManager
 						{tabs}
 						{activeTabId}
-						{draggingTabId}
 						{canScrollLeft}
 						{canScrollRight}
 						bind:scrollContainer
 						onSelect={handleSelect}
 						onClose={closeTab}
-						onDragStart={handleDragStart}
-						onDragOver={handleDragOver}
-						onDragEnd={handleDragEnd}
+						onReorder={(newTabs) => {
+							// 1. filesの状態を新しい順序に更新
+							const newFiles = [...files];
+							newTabs.forEach((tab, index) => {
+								const file = newFiles.find((f) => f.id === tab.id);
+								if (file) file.sort_order = index;
+							});
+							files = newFiles;
+							// 2. 既存の保存ロジックを実行
+							handleDragEnd();
+						}}
 						onScroll={checkScroll}
 						onWheel={handleWheel}
 						{scrollTabs}
@@ -1175,31 +1219,11 @@
 				{#if !targetItem?.is_folder}
 					<div class="space-y-2">
 						<span class="text-label">Tags</span>
-						<div class="mb-3 flex flex-wrap gap-2" role="list">
-							{#each targetItem.tags || [] as tag, i}
+						<div id="tag-list" class="mb-3 flex flex-wrap gap-2" role="list">
+							{#each targetItem.tags || [] as tag (tag.id)}
 								<div
-									draggable="true"
 									role="listitem"
-									ondragstart={() => (draggedTagIndex = i)}
-									ondragover={(e) => {
-										e.preventDefault();
-										e.dataTransfer!.dropEffect = 'move';
-									}}
-									ondrop={(e) => {
-										e.preventDefault();
-										if (draggedTagIndex !== null && draggedTagIndex !== i) {
-											const updatedTags = [...targetItem.tags];
-											const [movedTag] = updatedTags.splice(draggedTagIndex, 1);
-											updatedTags.splice(i, 0, movedTag);
-											targetItem.tags = updatedTags;
-											// updateFile(targetItem); // DB保存が必要な場合
-										}
-										draggedTagIndex = null;
-									}}
-									class="flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-bold transition-opacity {draggedTagIndex ===
-									i
-										? 'opacity-30'
-										: 'opacity-100'}"
+									class="flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-bold transition-opacity"
 									style="background-color: {tag.color}15; border-color: {tag.color}40; color: {tag.color};"
 								>
 									<span class="max-w-25 truncate">{tag.name}</span>
