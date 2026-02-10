@@ -915,25 +915,52 @@
 			</div>
 
 			{#if activeView === 'editor'}
-				<div
-					class="absolute right-6 bottom-6 z-40 flex items-center gap-1 rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl"
-				>
-					{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
-						<button
-							onclick={() => {
-								layoutMode = mode as LayoutMode;
-								const count = getViewCount(layoutMode);
-								while (viewStates.length < count) viewStates.push('');
-								if (activeViewIndex >= count) activeViewIndex = 0;
-							}}
-							class="rounded-xl px-3 py-1.5 text-[10px] font-black transition-all {layoutMode ===
-							mode
-								? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
-								: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
+				<div class="group/layout absolute right-6 bottom-6 z-40 flex items-center justify-end">
+					<div
+						class="flex h-12 w-12 items-center gap-1 overflow-hidden rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out
+			group-hover/layout:w-80"
+					>
+						<div
+							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-(--accent-color)"
 						>
-							{mode}
-						</button>
-					{/each}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="18"
+								height="18"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<rect width="18" height="18" x="3" y="3" rx="2" /><path d="M12 3v18" /><path
+									d="M3 12h18"
+								/>
+							</svg>
+						</div>
+
+						<div
+							class="flex items-center gap-1 pr-2 opacity-0 transition-opacity duration-200 group-hover/layout:opacity-100"
+						>
+							{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
+								<button
+									onclick={() => {
+										layoutMode = mode as LayoutMode;
+										const count = getViewCount(layoutMode);
+										while (viewStates.length < count) viewStates.push('');
+										if (activeViewIndex >= count) activeViewIndex = 0;
+									}}
+									class="rounded-xl px-3 py-1.5 text-[10px] font-black whitespace-nowrap transition-all {layoutMode ===
+									mode
+										? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
+										: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
+								>
+									{mode}
+								</button>
+							{/each}
+						</div>
+					</div>
 				</div>
 			{/if}
 		</main>
