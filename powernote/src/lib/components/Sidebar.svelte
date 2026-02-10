@@ -13,28 +13,33 @@
 		}>();
 
 	let searchQuery = $state('');
-	let searchMode = $state<'name' | 'tag' | 'content'>('name');
+	let searchFilter = $state<'all' | 'name' | 'tag' | 'content'>('all');
 
-	// 検索ロジック：検索時はフォルダを除外し、条件に合うファイルのみを抽出
-	let displayItems = $derived(
-		searchQuery.trim() === ''
-			? files.filter((f: any) => !f.parent_id) // 通常時：ルート項目
-			: files.filter((f: any) => {
-					if (f.is_folder) return false; // 検索時はフォルダを表示しない
-					const query = searchQuery.toLowerCase();
-					if (searchMode === 'name') return f.name.toLowerCase().includes(query);
-					if (searchMode === 'tag')
-						return f.tags?.some((t: any) => t.name.toLowerCase().includes(query));
-					if (searchMode === 'content') return f.content?.toLowerCase().includes(query);
-					return false;
-				})
-	);
+	// 検索ロジック
+	let displayItems = $derived.by(() => {
+		const query = searchQuery.toLowerCase().trim();
+		if (query === '') return files.filter((f: any) => !f.parent_id);
+
+		return files.filter((f: any) => {
+			if (f.is_folder) return false;
+
+			const matchName = f.name.toLowerCase().includes(query);
+			const matchTag = f.tags?.some((t: any) => t.name.toLowerCase().includes(query));
+			const matchContent = f.content?.toLowerCase().includes(query);
+
+			if (searchFilter === 'name') return matchName;
+			if (searchFilter === 'tag') return matchTag;
+			if (searchFilter === 'content') return matchContent;
+
+			return matchName || matchTag || matchContent;
+		});
+	});
 </script>
 
 <aside
 	class="flex h-full w-68 flex-col overflow-hidden rounded-3xl border border-(--border-color) bg-(--bg-sidebar) shadow-sm"
 >
-	<div class="p-8">
+	<div class="p-8 pb-4">
 		<div class="mb-8 flex items-center gap-3">
 			<div
 				class="flex h-8 w-8 items-center justify-center rounded-xl bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg"
@@ -81,20 +86,6 @@
 		</div>
 
 		<div class="mt-6 space-y-2">
-			<div class="flex rounded-xl bg-black/5 p-1 dark:bg-white/5">
-				{#each ['name', 'tag', 'content'] as mode}
-					<button
-						onclick={() => (searchMode = mode as any)}
-						class="flex-1 rounded-lg py-2 text-[10px] font-bold uppercase transition-all {searchMode ===
-						mode
-							? 'bg-white text-(--accent-color) shadow-sm dark:bg-white/10 dark:text-white'
-							: 'text-(--text-muted) opacity-60 hover:opacity-100'}"
-					>
-						{mode}
-					</button>
-				{/each}
-			</div>
-
 			<div
 				class="relative flex h-9 items-center justify-center overflow-hidden rounded-xl bg-black/5 transition-all focus-within:bg-black/10 dark:bg-white/5 dark:focus-within:bg-white/10"
 			>
@@ -115,18 +106,38 @@
 					class="h-full flex-1 border-none bg-transparent px-2 text-[11px] outline-none"
 				/>
 			</div>
+
+			<div
+				class="flex gap-1 overflow-hidden transition-all duration-200 {searchQuery
+					? 'mt-2 h-7 opacity-100'
+					: 'h-0 opacity-0'}"
+			>
+				{#each ['all', 'name', 'tag', 'content'] as filter}
+					<button
+						onclick={() => (searchFilter = filter as any)}
+						class="flex-1 rounded-lg text-[9px] font-black uppercase transition-all {searchFilter ===
+						filter
+							? 'bg-(--accent-color) text-white shadow-sm'
+							: 'bg-black/5 text-(--text-muted) opacity-60 hover:opacity-100 dark:bg-white/5'}"
+					>
+						{filter}
+					</button>
+				{/each}
+			</div>
 		</div>
 	</div>
 
 	<nav class="flex-1 overflow-y-auto px-4 pb-6">
 		<div class="text-label mb-4 px-4">{searchQuery ? 'Search Results' : 'Explorer'}</div>
-		{#each displayItems as item (item.id)}
-			<TreeItem {item} allFiles={files} {onSelect} {selectedId} {onOpenActions} />
-		{:else}
-			<div class="py-10 text-center text-[11px] font-bold uppercase opacity-20 tracking-widest">
-				No items
-			</div>
-		{/each}
+		<div class="flex flex-col gap-0.5">
+			{#each displayItems as item (item.id)}
+				<TreeItem {item} allFiles={files} {onSelect} {selectedId} {onOpenActions} />
+			{:else}
+				<div class="py-10 text-center text-[11px] font-bold uppercase opacity-20 tracking-widest">
+					No items
+				</div>
+			{/each}
+		</div>
 	</nav>
 
 	<div class="border-t border-(--border-color)/30 p-4">
