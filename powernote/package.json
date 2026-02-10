@@ -41,6 +41,7 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.95.3",
-		"svelte-french-toast": "^1.2.0"
+		"svelte-french-toast": "^1.2.0",
+		"svelte-splitpanes": "^8.0.12"
 	}
 }

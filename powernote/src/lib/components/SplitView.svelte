@@ -1,60 +1,73 @@
 <script lang="ts">
-	type LayoutMode = '1' | 'V2' | 'H2' | 'V3' | 'Grid4' | 'Grid6';
+	import type { PaneNode } from '$lib/types';
+	// Svelte 5では自分自身のコンポーネント名をインポートして再帰呼び出しします
+	import SplitView from './SplitView.svelte';
 
 	let {
+		node = $bindable(),
 		files,
-		layoutMode = $bindable('1'),
-		viewStates = $bindable(['']),
-		activeViewIndex = $bindable(0),
+		activeViewId = $bindable(''), // インデックスではなくIDで管理
 		onOpenActions,
 		isImage,
 		isVideo
 	} = $props<{
+		node: PaneNode;
 		files: any[];
-		layoutMode: LayoutMode;
-		viewStates: string[];
-		activeViewIndex: number;
+		activeViewId: string;
 		onOpenActions: (file: any) => void;
 		isImage: (ext: string) => boolean;
 		isVideo: (ext: string) => boolean;
 	}>();
 
-	const gridClasses: Record<LayoutMode, string> = {
-		'1': 'grid-cols-1',
-		V2: 'grid-cols-2',
-		H2: 'grid-rows-2',
-		V3: 'grid-cols-3',
-		Grid4: 'grid-cols-2 grid-rows-2',
-		Grid6: 'grid-cols-3 grid-rows-2'
-	};
-
-	// layoutMode の型を明示的に LayoutMode と指定して取得する関数
-	const getGridClass = (mode: LayoutMode) => gridClasses[mode];
-
-	const getViewCount = (m: LayoutMode) => ({ '1': 1, V2: 2, H2: 2, V3: 3, Grid4: 4, Grid6: 6 })[m];
-
-	// レイアウト変更時に viewStates の数を調整
-	$effect(() => {
-		const count = getViewCount(layoutMode);
-		let updated = [...viewStates];
-		while (updated.length < count) updated.push('');
-		if (updated.length !== viewStates.length) {
-			viewStates = updated;
+	const handlePaneClick = () => {
+		if (node.type === 'file') {
+			activeViewId = node.id;
 		}
-		if (activeViewIndex >= count) activeViewIndex = 0;
-	});
+	};
 </script>
 
-<div class="grid h-full w-full divide-(--border-color)/30 {getGridClass(layoutMode)}">
-	{#each Array(getViewCount(layoutMode)) as _, i}
-		{@const viewId = viewStates[i]}
-		{@const viewFile = files.find((f: any) => f.id === viewId)}
+<div class="h-full w-full">
+	{#if node.type === 'split' && node.children}
+		<div
+			class="flex h-full w-full {node.direction === 'vertical'
+				? 'flex-col'
+				: 'flex-row'} divide-(--border-color)/30"
+		>
+			<div style="flex: {node.ratio || 50}%">
+				<SplitView
+					bind:node={node.children[0]}
+					{files}
+					bind:activeViewId
+					{onOpenActions}
+					{isImage}
+					{isVideo}
+				/>
+			</div>
 
+			<div
+				class="{node.direction === 'vertical'
+					? 'h-1 w-full cursor-ns-resize'
+					: 'h-full w-1 cursor-ew-resize'} bg-(--border-color)/10 transition-colors hover:bg-(--accent-color)/50"
+			></div>
+
+			<div style="flex: {100 - (node.ratio || 50)}%">
+				<SplitView
+					bind:node={node.children[1]}
+					{files}
+					bind:activeViewId
+					{onOpenActions}
+					{isImage}
+					{isVideo}
+				/>
+			</div>
+		</div>
+	{:else}
+		{@const viewFile = files.find((f: any) => f.id === node.fileId)}
 		<div
 			role="presentation"
-			onclick={() => (activeViewIndex = i)}
-			class="group/pane relative flex flex-col border border-(--border-color)/10 transition-colors {activeViewIndex ===
-			i
+			onclick={handlePaneClick}
+			class="group/pane relative flex h-full w-full flex-col border border-(--border-color)/10 transition-colors {activeViewId ===
+			node.id
 				? 'bg-(--accent-color)/2 ring-2 ring-(--accent-color)/20 ring-inset'
 				: ''}"
 		>
@@ -64,8 +77,8 @@
 				>
 					<button
 						onclick={() => onOpenActions(viewFile)}
-						aria-label="Open file actions"
 						class="flex h-8 w-8 items-center justify-center rounded-full border border-(--border-color)/50 bg-(--bg-sidebar)/80 shadow-lg backdrop-blur-md hover:scale-110"
+						aria-label="Open actions"
 					>
 						<svg
 							class="h-4 w-4 opacity-60"
@@ -107,7 +120,6 @@
 						bind:value={viewFile.content}
 						class="h-full w-full resize-none overflow-y-auto border-none bg-transparent p-5 font-mono text-[15px] leading-relaxed outline-none focus:ring-0"
 						spellcheck="false"
-						placeholder="Start writing..."
 					></textarea>
 				{/if}
 			{:else}
@@ -115,10 +127,10 @@
 					class="m-4 flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-(--border-color)/10"
 				>
 					<span class="text-[9px] font-black tracking-widest uppercase opacity-20"
-						>View {i + 1}: Select file</span
+						>Select file in this pane</span
 					>
 				</div>
 			{/if}
 		</div>
-	{/each}
+	{/if}
 </div>

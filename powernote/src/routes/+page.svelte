@@ -7,6 +7,7 @@
 	import TabManager from '$lib/components/TabManager.svelte';
 	import { slide } from 'svelte/transition';
 	import SplitView from '$lib/components/SplitView.svelte';
+	import type { PaneNode } from '$lib/types';
 
 	let user = $state<any>(null);
 	let files = $state<any[]>([]);
@@ -199,10 +200,83 @@
 	);
 
 	// --- 画面分割・状態記憶管理 ---
-	type LayoutMode = '1' | 'V2' | 'H2' | 'V3' | 'Grid4' | 'Grid6';
-	let layoutMode = $state<LayoutMode>('1');
-	let activeViewIndex = $state(0);
-	let viewStates = $state<string[]>(['']);
+	let splitTree = $state<PaneNode>({
+		id: 'root-pane',
+		type: 'file',
+		fileId: ''
+	});
+	let activeViewId = $state('root-pane');
+
+	// ツリー内から特定のIDを持つノードを再帰的に探して更新するヘルパー
+	function updateNodeById(node: PaneNode, id: string, callback: (node: PaneNode) => void) {
+		if (node.id === id) {
+			callback(node);
+			return;
+		}
+		if (node.type === 'split' && node.children) {
+			updateNodeById(node.children[0], id, callback);
+			updateNodeById(node.children[1], id, callback);
+		}
+	}
+
+	// ツリー全体から特定のfileIdをクリアするヘルパー（削除・閉じるとき用）
+	function clearFileIdInTree(node: PaneNode, fileId: string) {
+		if (node.type === 'file' && node.fileId === fileId) {
+			node.fileId = '';
+		} else if (node.type === 'split' && node.children) {
+			clearFileIdInTree(node.children[0], fileId);
+			clearFileIdInTree(node.children[1], fileId);
+		}
+	}
+
+	function splitActivePane(direction: 'vertical' | 'horizontal') {
+		updateNodeById(splitTree, activeViewId, (node) => {
+			if (node.type === 'file') {
+				const currentFileId = node.fileId || '';
+				const originalId = node.id; // 現在のIDを親（split用）として維持
+
+				node.type = 'split';
+				node.direction = direction;
+				node.ratio = 50;
+				node.children = [
+					{ id: crypto.randomUUID(), type: 'file', fileId: currentFileId },
+					{ id: crypto.randomUUID(), type: 'file', fileId: '' }
+				];
+				// 新しく作成された右側（または下側）の空ペインにフォーカス
+				activeViewId = node.children[1].id;
+			}
+		});
+	}
+
+	// 現在のアクティブなペインを削除し、親を子で置き換える関数
+	function removeActivePane() {
+		if (splitTree.id === activeViewId) return; // ルートは消せない
+
+		// 戻り値の型を : boolean と明示することでエラーを解消
+		const findAndRemove = (parent: PaneNode): boolean => {
+			if (parent.type === 'split' && parent.children) {
+				// 子要素が削除対象かチェック
+				if (parent.children[0].id === activeViewId) {
+					const remaining = parent.children[1];
+					Object.assign(parent, remaining);
+					// 削除後、親（だった場所）にフォーカスを移動
+					activeViewId = parent.id;
+					return true;
+				}
+				if (parent.children[1].id === activeViewId) {
+					const remaining = parent.children[0];
+					Object.assign(parent, remaining);
+					activeViewId = parent.id;
+					return true;
+				}
+				// さらに深く探す
+				return findAndRemove(parent.children[0]) || findAndRemove(parent.children[1]);
+			}
+			return false;
+		};
+		findAndRemove(splitTree);
+	}
+
 	let tabs = $derived(
 		files
 			.filter((f) => f.is_open)
@@ -211,11 +285,23 @@
 				return a.sort_order - b.sort_order;
 			})
 	);
-	let activeTabId = $derived(viewStates[activeViewIndex] || null);
+	let activeTabId = $derived.by(() => {
+		let foundId = null;
+		const find = (node: PaneNode) => {
+			if (node.id === activeViewId && node.type === 'file') foundId = node.fileId;
+			else if (node.type === 'split' && node.children) {
+				find(node.children[0]);
+				find(node.children[1]);
+			}
+		};
+		find(splitTree);
+		return foundId || null;
+	});
 
 	$effect(() => {
 		if (files.length > 0) {
-			const state = { layoutMode, viewStates, activeViewIndex };
+			// 保存対象を splitTree と activeViewId に変更
+			const state = { splitTree, activeViewId };
 			localStorage.setItem('powernote_split_config', JSON.stringify(state));
 		}
 	});
@@ -331,23 +417,29 @@
 			.eq('user_id', user.id)
 			.order('sort_order', { ascending: true });
 		files = data || [];
+
 		const saved = localStorage.getItem('powernote_split_config');
 		if (saved) {
 			const config = JSON.parse(saved);
-			layoutMode = config.layoutMode;
-			viewStates = config.viewStates;
-			activeViewIndex = config.activeViewIndex;
+			// 保存されたツリー構造とアクティブIDを復元
+			if (config.splitTree) splitTree = config.splitTree;
+			if (config.activeViewId) activeViewId = config.activeViewId;
 		}
 	}
 
 	async function handleSelect(file: any) {
 		if (file.is_folder) return;
 		activeView = 'editor';
-		viewStates[activeViewIndex] = file.id;
+
+		// 現在アクティブなペイン(activeViewId)にファイルIDをセット
+		updateNodeById(splitTree, activeViewId, (node) => {
+			if (node.type === 'file') node.fileId = file.id;
+		});
+
 		if (!file.is_open) {
 			const { error } = await supabase.from('files').update({ is_open: true }).eq('id', file.id);
 			if (!error) {
-				const f = files.find((item) => item.id === file.id);
+				const f = files.find((item: any) => item.id === file.id);
 				if (f) f.is_open = true;
 			}
 		}
@@ -367,7 +459,7 @@
 		if (!error) {
 			const f = files.find((item) => item.id === id);
 			if (f) f.is_open = false;
-			viewStates = viewStates.map((v) => (v === id ? '' : v));
+			clearFileIdInTree(splitTree, id);
 		}
 		setTimeout(checkScroll, 50);
 	}
@@ -462,7 +554,7 @@
 		const { error } = await supabase.from('files').delete().eq('id', idToDelete);
 		if (error) toast.error('Delete failed');
 		else {
-			viewStates = viewStates.map((v) => (v === idToDelete ? '' : v));
+			clearFileIdInTree(splitTree, idToDelete);
 			await fetchFiles();
 			closeModals();
 			toast.success('Deleted');
@@ -829,10 +921,9 @@
 					</div>
 				{:else}
 					<SplitView
+						bind:node={splitTree}
 						{files}
-						bind:layoutMode
-						bind:viewStates
-						bind:activeViewIndex
+						bind:activeViewId
 						onOpenActions={openItemActions}
 						{isImage}
 						{isVideo}
@@ -855,7 +946,7 @@
 				<div class="group/layout absolute right-6 bottom-6 z-40 flex items-center justify-end">
 					<div
 						class="flex h-12 items-center overflow-hidden rounded-2xl border border-(--border-color)/50 bg-(--bg-modal)/80 p-1.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out
-			{isLayoutMenuOpen ? 'w-70' : 'w-12'} lg:group-hover/layout:w-70"
+            {isLayoutMenuOpen ? 'w-64' : 'w-12'} lg:group-hover/layout:w-64"
 					>
 						<button
 							type="button"
@@ -882,24 +973,65 @@
 						</button>
 
 						<div
-							class="flex items-center gap-0.5 pr-1.5 transition-opacity duration-200
-				{isLayoutMenuOpen ? 'opacity-100' : 'opacity-0'} lg:group-hover/layout:opacity-100"
+							class="flex items-center gap-1.5 pr-1.5 transition-opacity duration-200
+                {isLayoutMenuOpen ? 'opacity-100' : 'opacity-0'} lg:group-hover/layout:opacity-100"
 						>
-							{#each ['1', 'V2', 'H2', 'V3', 'Grid4', 'Grid6'] as mode}
-								<button
-									type="button"
-									onclick={() => {
-										layoutMode = mode as LayoutMode;
-										isLayoutMenuOpen = false;
-									}}
-									class="rounded-xl px-2.5 py-1.5 text-[10px] font-black whitespace-nowrap transition-all {layoutMode ===
-									mode
-										? 'bg-(--accent-color) text-white shadow-(--accent-color)/20 shadow-lg'
-										: 'opacity-40 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'}"
+							<button
+								type="button"
+								onclick={() => {
+									splitActivePane('horizontal');
+									isLayoutMenuOpen = false;
+								}}
+								class="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[10px] font-black uppercase opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+							>
+								<svg
+									width="12"
+									height="12"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="3"><path d="M12 3v18" /></svg
 								>
-									{mode}
-								</button>
-							{/each}
+								Split V
+							</button>
+
+							<button
+								type="button"
+								onclick={() => {
+									splitActivePane('vertical');
+									isLayoutMenuOpen = false;
+								}}
+								class="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[10px] font-black uppercase opacity-60 transition-all hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+							>
+								<svg
+									width="12"
+									height="12"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="3"><path d="M3 12h18" /></svg
+								>
+								Split H
+							</button>
+
+							<button
+								type="button"
+								onclick={() => {
+									removeActivePane();
+									isLayoutMenuOpen = false;
+								}}
+								class="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[10px] font-black text-red-500 uppercase opacity-60 transition-all hover:bg-red-500/10 hover:opacity-100"
+							>
+								<svg
+									width="12"
+									height="12"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="3"><path d="M18 6L6 18M6 6l12 12" /></svg
+								>
+								Close
+							</button>
 						</div>
 					</div>
 				</div>
